@@ -1,0 +1,7 @@
+{
+	"forwarders": "1",
+	"file": "/tmp/test",
+	"spatiality": "strided",
+	"total_size": "327680",
+	"request_size": "32768"
+}

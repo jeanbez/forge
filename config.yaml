@@ -1,0 +1,3 @@
+forwarding:
+    - servers: 2
+    - clients: 4
