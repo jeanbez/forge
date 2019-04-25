@@ -198,8 +198,12 @@ int get_forwarding_server() {
 	return (world_rank - simulation_forwarders) / ((world_size - simulation_forwarders) / simulation_forwarders);
 }
 
+unsigned long int total_requests = 0;
+pthread_mutex_t total_requests_lock;
+
 void *server_listen(void *p) {
-	int i, flag;
+	int i = 0, flag = 0;
+	int ack = 1;
 
 	MPI_Datatype request_datatype;
 	int block_lengths[5] = {255, 1, 1, 1, 1};
@@ -232,9 +236,6 @@ void *server_listen(void *p) {
 	printf("LISTENING...\n");
 	#endif
 
-	unsigned long int total_requests = 0;
-	pthread_mutex_t total_requests_lock;
-
 	char fh_str[255];
 
 	// Listen for incoming requests
@@ -250,7 +251,7 @@ void *server_listen(void *p) {
 			// While we do not receive a message we need to continously check for shutdown status
 
 			// If all the nodes requested a shutdown, we can proceed
-			if (shutdown ==  (world_size - simulation_forwarders) / simulation_forwarders) {
+			if (shutdown == (world_size - simulation_forwarders) / simulation_forwarders) {
 				#ifdef DEBUG
 				printf("SHUTDOWN\n");
 				#endif
@@ -298,6 +299,10 @@ void *server_listen(void *p) {
 		// Create the request
 		struct forwarding_request *r = (struct forwarding_request *) malloc(sizeof(struct forwarding_request));
 
+		if (r == NULL) {
+			MPI_Abort(MPI_COMM_WORLD, ERROR_MEMORY_ALLOCATION);
+		}
+
 		r->id = generate_identifier();
 		r->operation = req.operation;
 		r->rank = status.MPI_SOURCE;
@@ -312,46 +317,62 @@ void *server_listen(void *p) {
 
 		// We do not schedule OPEN and CLOSE requests so we can process them now
 		if (r->operation == OPEN) {
-			struct opened_handles *h = (struct opened_handles *) malloc(sizeof(struct opened_handles));
+			struct opened_handles *h;
 
 			// Check if the file is already opened
 			pthread_mutex_lock(&handles_lock);
 			HASH_FIND_STR(opened_files, r->file_name, h);
-			pthread_mutex_unlock(&handles_lock);
 
 			if (h == NULL) {
+				#ifdef DEBUG
+				printf("OPEN FILE: %s\n", r->file_name);
+				#endif
+
 				// Open the file
 				int fh = open(r->file_name, O_CREAT | O_RDWR, 0666);
 				
 				h = (struct opened_handles *) malloc(sizeof(struct opened_handles));
+
+				if (h == NULL) {
+					MPI_Abort(MPI_COMM_WORLD, ERROR_MEMORY_ALLOCATION);
+				}
 
 				// Saves the file handle in the hash
 				h->fh = fh;
 				strcpy(h->path, r->file_name);
 				h->references = 1;
 
-				pthread_mutex_lock(&handles_lock);
 				HASH_ADD_STR(opened_files, path, h);
-				pthread_mutex_unlock(&handles_lock);
 			} else {
-				struct opened_handles *h_updated = (struct opened_handles *) malloc(sizeof(struct opened_handles));
+				struct opened_handles *tmp = (struct opened_handles *) malloc(sizeof(struct opened_handles));
 
+				if (tmp == NULL) {
+					MPI_Abort(MPI_COMM_WORLD, ERROR_MEMORY_ALLOCATION);
+				}
+				
 				// We need to increment the number of users of this handle
 				h->references = h->references + 1;
+				
+				HASH_REPLACE_STR(opened_files, path, h, tmp);
+				
+				#ifdef DEBUG
+				printf("FILE: %s\n", r->file_name);
+				#endif
+			}
 
-				HASH_REPLACE_INT(opened_files, path, h, h_updated);
+			// Release the lock that guaranteed an atomic update
+			pthread_mutex_unlock(&handles_lock);
 
-				free(h_updated);
+			if (h == NULL) {
+				MPI_Abort(MPI_COMM_WORLD, ERROR_MEMORY_ALLOCATION);
 			}
 
 			#ifdef DEBUG
-			printf("FILE HANDLE: %d\n", h->fh);
+			printf("FILE HANDLE: %d (references = %d)\n", h->fh, h->references);
 			#endif
 
 			// Return the handle to be used in future operations
 			MPI_Send(&h->fh, 1, MPI_INT, r->rank, TAG_HANDLE, MPI_COMM_WORLD);
-
-			free(h);
 
 			continue;
 		}
@@ -432,11 +453,51 @@ void *server_listen(void *p) {
 
 		// We do not schedule OPEN and CLOSE requests so we can process them now
 		if (r->operation == CLOSE) {
+			struct opened_handles *h;
 
-			// Remove the request from the hash
-			pthread_mutex_lock(&requests_lock);
-			HASH_DEL(requests, r);
-			pthread_mutex_unlock(&requests_lock);
+			// Check if the file is already opened
+			pthread_mutex_lock(&handles_lock);
+			HASH_FIND_STR(opened_files, r->file_name, h);
+
+			if (h == NULL) {
+				MPI_Abort(MPI_COMM_WORLD, ERROR_FAILED_TO_CLOSE);
+			} else {
+				// Update the number of users
+				h->references = h->references - 1;
+
+				// Check if we can actually close the file
+				if (h->references == 0) {
+					#ifdef DEBUG
+					printf("CLOSED: %s (%d)\n", h->path, h->fh);
+					#endif
+
+					// Close the file
+					close(h->fh);
+
+					// Remove the request from the hash
+					HASH_DEL(opened_files, h);
+
+					free(h);
+				} else {
+					struct opened_handles *tmp = (struct opened_handles *) malloc(sizeof(struct opened_handles));
+
+					if (tmp == NULL) {
+						MPI_Abort(MPI_COMM_WORLD, ERROR_MEMORY_ALLOCATION);
+					}
+
+					HASH_REPLACE_STR(opened_files, path, h, tmp);
+
+					#ifdef DEBUG
+					printf("FILE HANDLE: %d (references = %d)\n", h->fh, h->references);
+					#endif
+				}				
+			}
+
+			// Release the lock that guaranteed an atomic update
+			pthread_mutex_unlock(&handles_lock);
+
+			// Return the handle to be used in future operations
+			MPI_Send(&ack, 1, MPI_INT, r->rank, TAG_ACK, MPI_COMM_WORLD);
 
 			continue;
 		}
@@ -547,7 +608,7 @@ int main(int argc, char *argv[]) {
 
 	jsmn_init(&parser);
 
-	int ret = jsmn_parse(&parser, configuration, strlen(configuration), tokens, sizeof(tokens)/sizeof(tokens[0]));
+	int ret = jsmn_parse(&parser, configuration, strlen(configuration), tokens, sizeof(tokens) / sizeof(tokens[0]));
 	if (ret < 0) {
 		printf("Failed to parse JSON: %d\n", ret);
 		
@@ -830,7 +891,12 @@ int main(int argc, char *argv[]) {
 		
 		MPI_Barrier(clients_comm);
 
-		// Collect the execution time of each rank
+		/*
+		 * STATISTICS ------------------------------------------------------------------------------
+		 * Collect statistics form all the client nodes
+		 * -----------------------------------------------------------------------------------------
+		 */
+
 		if (client_rank == 0) {
 			rank_elapsed = malloc(sizeof(double) * client_size);
 		}
@@ -874,11 +940,55 @@ int main(int argc, char *argv[]) {
 		 * -----------------------------------------------------------------------------------------
 		 */
 
+		// Create the request
+		r = (struct request *) malloc(sizeof(struct request));
+
+		r->operation = CLOSE;
+		strcpy(r->file_name, simulation_file);
+		r->file_handle = -1;
+		r->offset = 0;
+		r->size = 1;
+
+		// Issue the CLOSE operation, that should wait for it to complete
+		MPI_Send(r, 1, request_datatype, my_forwarding_server, TAG_REQUEST, MPI_COMM_WORLD); 
+
+		#ifdef DEBUG
+		printf("waiting for the close ACK...\n");
+		#endif
+
+		// We need to wait for the file handle to continue
+		MPI_Recv(&forwarding_fh, 1, MPI_INT, my_forwarding_server, TAG_ACK, MPI_COMM_WORLD, &status);
+
+		MPI_Barrier(clients_comm);
+
 		/*
 		 * OPEN ------------------------------------------------------------------------------------
 		 * Issue OPEN request to the forwarding layer
 		 * -----------------------------------------------------------------------------------------
 		 */
+
+		// Create the request
+		r = (struct request *) malloc(sizeof(struct request));
+
+		r->operation = OPEN;
+		strcpy(r->file_name, simulation_file);
+		r->file_handle = -1;
+		r->offset = 0;
+		r->size = 1;
+
+		// Issue the OPEN operation, that should wait for it to complete
+		MPI_Send(r, 1, request_datatype, my_forwarding_server, TAG_REQUEST, MPI_COMM_WORLD); 
+
+		#ifdef DEBUG
+		printf("waiting for the file handle...\n");
+		#endif
+
+		// We need to wait for the file handle to continue
+		MPI_Recv(&forwarding_fh, 1, MPI_INT, my_forwarding_server, TAG_HANDLE, MPI_COMM_WORLD, &status);
+
+		#ifdef DEBUG
+		printf("HANDLE received [id=%d] %d\n", request_id, forwarding_fh);
+		#endif
 		
 		/*
 		 * READ ------------------------------------------------------------------------------------
@@ -949,9 +1059,33 @@ int main(int argc, char *argv[]) {
 		 * -----------------------------------------------------------------------------------------
 		 */
 
+		// Create the request
+		r = (struct request *) malloc(sizeof(struct request));
 
+		r->operation = CLOSE;
+		strcpy(r->file_name, simulation_file);
+		r->file_handle = -1;
+		r->offset = 0;
+		r->size = 1;
 
-		// Collect the execution time of each rank
+		// Issue the CLOSE operation, that should wait for it to complete
+		MPI_Send(r, 1, request_datatype, my_forwarding_server, TAG_REQUEST, MPI_COMM_WORLD); 
+
+		#ifdef DEBUG
+		printf("waiting for the close ACK...\n");
+		#endif
+
+		// We need to wait for the file handle to continue
+		MPI_Recv(&forwarding_fh, 1, MPI_INT, my_forwarding_server, TAG_ACK, MPI_COMM_WORLD, &status);
+
+		MPI_Barrier(clients_comm);
+
+		/*
+		 * STATISTICS ------------------------------------------------------------------------------
+		 * Collect statistics form all the client nodes
+		 * -----------------------------------------------------------------------------------------
+		 */
+
 		if (client_rank == 0) {
 			rank_elapsed = malloc(sizeof(double) * client_size);
 		}
@@ -989,6 +1123,9 @@ int main(int argc, char *argv[]) {
 
 		// Free the request
 		free(r);
+
+		// Free the statistics related to each rank
+		free(rank_elapsed);
 
 		/*
 		 * SHUTDOWN---------------------------------------------------------------------------------
