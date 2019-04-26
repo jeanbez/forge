@@ -1124,8 +1124,10 @@ int main(int argc, char *argv[]) {
 		// Free the request
 		free(r);
 
-		// Free the statistics related to each rank
-		free(rank_elapsed);
+		if (client_rank == 0) {
+			// Free the statistics related to each rank
+			free(rank_elapsed);
+		}
 
 		/*
 		 * SHUTDOWN---------------------------------------------------------------------------------
