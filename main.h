@@ -1,3 +1,24 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <pthread.h>
+#include <assert.h>
+#include <mpi.h>
+#include <fcntl.h>
+#include <math.h>
+#include <unistd.h>
+#include <agios.h>
+#include <limits.h>
+#include <time.h>
+
+// sudo apt-get install libgsl-dev
+#include <gsl/gsl_sort.h>
+#include <gsl/gsl_statistics.h>
+
+#include "jsmn.h"
+#include "fwd_list.h"
+#include "uthash.h"
+
 #define READ 0
 #define WRITE 1
 #define OPEN 3
@@ -5,7 +26,8 @@
 
 #define MAXIMUM_REQUEST_SIZE (1* 1024 * 1024 * 1024)
 
-#define FWD_LISTEN_THREADS 4
+#define FWD_LISTEN_THREADS 16
+#define FWD_PROCESS_THREADS 16
 
 #define TAG_REQUEST 10001
 #define TAG_BUFFER 10002
@@ -32,3 +54,46 @@
 #define ERROR_UNKNOWN_REQUEST_TYPE 70012
 #define ERROR_INVALID_FILE_HANDLE 70013
 #define ERROR_FAILED_TO_CLOSE 70014
+
+struct request {
+	char file_name[255];
+	int file_handle;
+
+	int operation;
+
+	unsigned long offset;
+	unsigned long size;
+};
+
+// Structure to keep track of the requests in the forwarding layer
+struct forwarding_request {
+	unsigned long id;
+
+	int rank;
+
+	char file_name[255];
+	int file_handle;
+	
+	int operation;
+	unsigned long offset;
+	unsigned long size;
+	char *buffer;
+
+	UT_hash_handle hh;
+};
+
+struct ready_request {
+	int id;
+
+	struct fwd_list_head list;
+};
+
+// Struture to keep track of open file handles
+struct opened_handles {
+	int fh;
+
+	char path[255];
+	int references;
+
+	UT_hash_handle hh;
+};
