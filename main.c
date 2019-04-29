@@ -1,5 +1,5 @@
-
 #include "main.h"
+#include "log.h"
 
 const int MAX_STRING = 100;
 const int EMPTY = 0;
@@ -51,9 +51,9 @@ FWD_LIST_HEAD(ready_queue);
 pthread_mutex_t ready_queue_mutex;
 pthread_cond_t ready_queue_signal;
 
-/*#ifdef DEBUG*/
+#ifdef DEBUG
 struct ready_request *tmp;
-/*#endif*/
+#endif
 
 void callback(unsigned long long int id) {
 	// Create the ready request
@@ -66,12 +66,12 @@ void callback(unsigned long long int id) {
 	// Place the request in the ready queue to be issued by the processing threads
 	fwd_list_add_tail(&(ready_r->list), &ready_queue);
 
-	#ifdef DEBUG
 	// Print the items on the list to make sure we have all the requests
-	printf("READY QUEUE\n");
+	log_trace("READY QUEUE");
 
+	#ifdef DEBUG
 	fwd_list_for_each_entry(tmp, &ready_queue, list) {
-		printf("\trequest: %d\n", tmp->id);
+		log_trace("\trequest: %d", tmp->id);
 	}
 	#endif
 
@@ -82,9 +82,7 @@ void callback(unsigned long long int id) {
 }
 
 void stop_AGIOS() {
-	#ifdef DEBUG
-	printf("stopping AGIOS scheduling library\n");
-	#endif
+	log_debug("stopping AGIOS scheduling library");
 
 	agios_exit();
 }
@@ -95,7 +93,7 @@ void start_AGIOS() {
 
 	// Check if AGIOS was successfully inicialized
 	if (agios_init(&agios_client, AGIOS_CONFIGURATION, simulation_forwarders) != 0) {
-		printf("Unable to initialize AGIOS scheduling library\n");
+		log_debug("Unable to initialize AGIOS scheduling library");
 
 		stop_AGIOS();
 	}
@@ -140,9 +138,7 @@ void *server_listen(void *p) {
 
 	MPI_Status status;
 
-	#ifdef DEBUG
-	printf("LISTEN THREAD %ld\n", pthread_self());
-	#endif
+	log_debug("LISTEN THREAD %ld", pthread_self());
 
 	char fh_str[255];
 
@@ -160,9 +156,7 @@ void *server_listen(void *p) {
 
 			// If all the nodes requested a shutdown, we can proceed
 			if (shutdown == (world_size - simulation_forwarders) / simulation_forwarders) {
-				#ifdef DEBUG
-				printf("SHUTDOWN: listen thread %ld\n", pthread_self());
-				#endif
+				log_debug("SHUTDOWN: listen thread %ld", pthread_self());
 
 				// We need to signal the processing thread to proceed and check for shutdown
 				pthread_cond_broadcast(&ready_queue_signal);
@@ -185,16 +179,12 @@ void *server_listen(void *p) {
 
 		MPI_Get_count(&status, request_datatype, &i);
 
-		#ifdef DEBUG
 		// Discover the rank that sent us the message
-		printf("Received message from %d with length %d\n", status.MPI_SOURCE, i);
-		#endif
+		log_debug("Received message from %d with length %d", status.MPI_SOURCE, i);
 
 		// Empty message means we are requests to shutdown
 		if (i == 0) {
-			#ifdef DEBUG
-			printf("Process %d has finished\n", status.MPI_SOURCE);
-			#endif
+			log_debug("Process %d has finished", status.MPI_SOURCE);
 
 			pthread_mutex_lock(&shutdown_lock);
 			shutdown++;
@@ -203,9 +193,7 @@ void *server_listen(void *p) {
 			continue;
 		}
 
-		#ifdef DEBUG
-		printf("[  ][%d] %d %d %ld %ld\n", status.MPI_SOURCE, req.operation, req.file_handle, req.offset, req.size);
-		#endif
+		log_debug("[  ][%d] %d %d %ld %ld", status.MPI_SOURCE, req.operation, req.file_handle, req.offset, req.size);
 
 		// Create the request
 		struct forwarding_request *r = (struct forwarding_request *) malloc(sizeof(struct forwarding_request));
@@ -222,9 +210,7 @@ void *server_listen(void *p) {
 		r->offset = req.offset;
 		r->size = req.size;
 
-		#ifdef DEBUG
-		printf("OPERATION: %d\n", r->operation);
-		#endif
+		log_debug("OPERATION: %d", r->operation);
 
 		// We do not schedule OPEN and CLOSE requests so we can process them now
 		if (r->operation == OPEN) {
@@ -235,9 +221,7 @@ void *server_listen(void *p) {
 			HASH_FIND_STR(opened_files, r->file_name, h);
 
 			if (h == NULL) {
-				#ifdef DEBUG
-				printf("OPEN FILE: %s\n", r->file_name);
-				#endif
+				log_debug("OPEN FILE: %s", r->file_name);
 
 				// Open the file
 				int fh = open(r->file_name, O_CREAT | O_RDWR, 0666);
@@ -266,9 +250,7 @@ void *server_listen(void *p) {
 				
 				HASH_REPLACE_STR(opened_files, path, h, tmp);
 				
-				#ifdef DEBUG
-				printf("FILE: %s\n", r->file_name);
-				#endif
+				log_debug("FILE: %s", r->file_name);
 			}
 
 			// Release the lock that guaranteed an atomic update
@@ -278,9 +260,7 @@ void *server_listen(void *p) {
 				MPI_Abort(MPI_COMM_WORLD, ERROR_MEMORY_ALLOCATION);
 			}
 
-			#ifdef DEBUG
-			printf("FILE HANDLE: %d (references = %d)\n", h->fh, h->references);
-			#endif
+			log_debug("FILE HANDLE: %d (references = %d)", h->fh, h->references);
 
 			// Return the handle to be used in future operations
 			MPI_Send(&h->fh, 1, MPI_INT, r->rank, TAG_HANDLE, MPI_COMM_WORLD);
@@ -298,16 +278,14 @@ void *server_listen(void *p) {
 			HASH_ADD_INT(requests, id, r);
 			pthread_mutex_unlock(&requests_lock);
 
-			#ifdef DEBUG
-			printf("add (handle: %d, operation: %d, offset: %ld, size: %ld, id: %ld)\n", r->file_handle, r->operation, r->offset, r->size, r->id);
-			#endif
+			log_debug("add (handle: %d, operation: %d, offset: %ld, size: %ld, id: %ld)", r->file_handle, r->operation, r->offset, r->size, r->id);
 
-			sprintf(fh_str, "%015d\n", r->file_handle);
+			sprintf(fh_str, "%015d", r->file_handle);
 
 			// Send the request to AGIOS
 			if (agios_add_request(fh_str, r->operation, r->offset, r->size, (void *) r->id, &agios_client, 0)) {
 				// Failed to sent to AGIOS, we should remove the request from the list
-				printf("Failed to send the request to AGIOS\n");
+				log_debug("Failed to send the request to AGIOS");
 
 				MPI_Abort(MPI_COMM_WORLD, ERROR_AGIOS_REQUEST);
 			}
@@ -320,9 +298,7 @@ void *server_listen(void *p) {
 			// Make sure the buffer can store the message
 			r->buffer = malloc(r->size * sizeof(char));
 
-			#ifdef DEBUG
-			printf("waiting to receive the buffer [id=%ld]...\n", r->id);
-			#endif
+			log_debug("waiting to receive the buffer [id=%ld]...", r->id);
 
 			MPI_Irecv(r->buffer, r->size, MPI_CHAR, r->rank, r->id, MPI_COMM_WORLD, &request); 
 
@@ -345,16 +321,14 @@ void *server_listen(void *p) {
 			HASH_ADD_INT(requests, id, r);
 			pthread_mutex_unlock(&requests_lock);
 
-			#ifdef DEBUG
-			printf("add (handle: %d, operation: %d, offset: %ld, size: %ld, id: %ld)\n", r->file_handle, r->operation, r->offset, r->size, r->id);
-			#endif
+			log_debug("add (handle: %d, operation: %d, offset: %ld, size: %ld, id: %ld)", r->file_handle, r->operation, r->offset, r->size, r->id);
 
-			sprintf(fh_str, "%015d\n", r->file_handle);
+			sprintf(fh_str, "%015d", r->file_handle);
 
 			// Send the request to AGIOS
 			if (agios_add_request(fh_str, r->operation, r->offset, r->size, (void *) r->id, &agios_client, 0)) {
 				// Failed to sent to AGIOS, we should remove the request from the list
-				printf("Failed to send the request to AGIOS\n");
+				log_debug("Failed to send the request to AGIOS");
 
 				MPI_Abort(MPI_COMM_WORLD, ERROR_AGIOS_REQUEST);
 			}
@@ -378,9 +352,7 @@ void *server_listen(void *p) {
 
 				// Check if we can actually close the file
 				if (h->references == 0) {
-					#ifdef DEBUG
-					printf("CLOSED: %s (%d)\n", h->path, h->fh);
-					#endif
+					log_debug("CLOSED: %s (%d)", h->path, h->fh);
 
 					// Close the file
 					close(h->fh);
@@ -398,9 +370,7 @@ void *server_listen(void *p) {
 
 					HASH_REPLACE_STR(opened_files, path, h, tmp);
 
-					#ifdef DEBUG
-					printf("FILE HANDLE: %d (references = %d)\n", h->fh, h->references);
-					#endif
+					log_debug("FILE HANDLE: %d (references = %d)", h->fh, h->references);
 				}				
 			}
 
@@ -420,7 +390,7 @@ void *server_listen(void *p) {
 	return NULL;
 }
 
-void *server_process(void *p) {
+void *server_dispatcher(void *p) {
 	int request_id;
 
 	int ack = 1;
@@ -429,9 +399,7 @@ void *server_process(void *p) {
 
 	char fh_str[255];
 
-	#ifdef DEBUG
-	printf("PROCESS THREAD %ld\n", pthread_self());
-	#endif
+	log_debug("PROCESS THREAD %ld", pthread_self());
 
 	while (1) {
 		// Start by locking the queue mutex
@@ -447,9 +415,7 @@ void *server_process(void *p) {
 				// Unlock the queue mutex to allow other threads to complete
 				pthread_mutex_unlock(&ready_queue_mutex);
 
-				#ifdef DEBUG
-				printf("SHUTDOWN: processs thread %ld\n", pthread_self());
-				#endif
+				log_debug("SHUTDOWN: processs thread %ld", pthread_self());
 
 				return NULL;
 			}
@@ -461,9 +427,7 @@ void *server_process(void *p) {
 		// Fetch the request ID
 		request_id = ready_r->id;
 
-		#ifdef DEBUG
-		printf("[P-%ld] ---> ISSUE: %d\n", pthread_self(), request_id);
-		#endif
+		log_debug("[P-%ld] ---> ISSUE: %d", pthread_self(), request_id);
 
 		// Remove it from the queue
 		fwd_list_del(&ready_r->list);
@@ -477,10 +441,10 @@ void *server_process(void *p) {
 		#ifdef DEBUG
 		// Discover the rank that sent us the message
 		pthread_mutex_lock(&requests_lock);
-		printf("[P-%ld] Pending requests: %u\n", pthread_self(), HASH_COUNT(requests));
+		log_debug("[P-%ld] Pending requests: %u", pthread_self(), HASH_COUNT(requests));
 		pthread_mutex_unlock(&requests_lock);
 		
-		printf("[P-%ld] Request ID: %u\n", pthread_self(), request_id);
+		printf("[P-%ld] Request ID: %u", pthread_self(), request_id);
 		#endif
 
 		// Get the request from the hash
@@ -494,9 +458,7 @@ void *server_process(void *p) {
 			return NULL;
 		}			
 
-		#ifdef DEBUG
-		printf("[XX][%d] %d %d %ld %ld\n", 0, r->operation, r->file_handle, r->offset, r->size);
-		#endif
+		log_debug("[XX][%d] %d %d %ld %ld", 0, r->operation, r->file_handle, r->offset, r->size);
 
 		// Issue the request to the filesystem
 		if (r->operation == WRITE) {
@@ -516,7 +478,7 @@ void *server_process(void *p) {
 			MPI_Send(&ack, 1, MPI_INT, r->rank, TAG_ACK, MPI_COMM_WORLD); 
 
 			// Release the AGIOS request
-			sprintf(fh_str, "%015d\n", r->file_handle);
+			sprintf(fh_str, "%015d", r->file_handle);
 
 			agios_release_request(fh_str, r->operation, r->size, r->offset, 0, r->size); // 0 is a sub-request
 		} else if (r->operation == READ) {
@@ -535,7 +497,7 @@ void *server_process(void *p) {
 			MPI_Send(r->buffer, r->size, MPI_CHAR, r->rank, TAG_BUFFER, MPI_COMM_WORLD);
 
 			// Release the AGIOS request
-			sprintf(fh_str, "%015d\n", r->file_handle);
+			sprintf(fh_str, "%015d", r->file_handle);
 
 			agios_release_request(fh_str, r->operation, r->size, r->offset, 0, r->size); // 0 is a sub-request
 		}
@@ -572,10 +534,16 @@ int main(int argc, char *argv[]) {
 
 	MPI_Status status;
 
+	log_set_level(LOG_INFO);
+
+	#ifdef DEBUG
+	log_set_level(LOG_TRACE);
+	#endif
+
 	char *buffer = malloc(MAXIMUM_REQUEST_SIZE * sizeof(char));
 
 	if (buffer == NULL) {
-		printf("ERROR: Unable to allocate the maximum memory size of %d bytes for requests \n", MAXIMUM_REQUEST_SIZE);
+		log_error("ERROR: Unable to allocate the maximum memory size of %d bytes for requests ", MAXIMUM_REQUEST_SIZE);
 
 		MPI_Abort(MPI_COMM_WORLD, ERROR_MEMORY_ALLOCATION);
 	}
@@ -585,7 +553,7 @@ int main(int argc, char *argv[]) {
 	
 		// Make sure MPI has thread support
 	if (provided != MPI_THREAD_MULTIPLE) {
-		printf("ERROR: the MPI library doesn't provide the required thread level\n");
+		log_error("ERROR: the MPI library doesn't provide the required thread level");
 
 		MPI_Abort(MPI_COMM_WORLD, ERROR_UNSUPPORTED);
 	}
@@ -601,10 +569,8 @@ int main(int argc, char *argv[]) {
 	int name_len;
 	MPI_Get_processor_name(processor_name, &name_len);
 
-	#ifdef DEBUG
 	// Print off a hello world message
-	printf("Hello world from processor %s, rank %d out of %d processors\n", processor_name, world_rank, world_size);
-	#endif
+	log_debug("Hello world from processor %s, rank %d out of %d processors", processor_name, world_rank, world_size);
 
 	FILE *json_file;
 	char *configuration;
@@ -646,14 +612,14 @@ int main(int argc, char *argv[]) {
 
 	int ret = jsmn_parse(&parser, configuration, strlen(configuration), tokens, sizeof(tokens) / sizeof(tokens[0]));
 	if (ret < 0) {
-		printf("Failed to parse JSON: %d\n", ret);
+		log_error("Failed to parse JSON: %d", ret);
 		
 		MPI_Abort(MPI_COMM_WORLD, ERROR_FAILED_TO_PARSE_JSON);
 	}
 
 	// Assume the top-level element is an object
 	if (ret < 1 || tokens[0].type != JSMN_OBJECT) {
-		printf("Object expected\n");
+		log_error("Object expected");
 		
 		MPI_Abort(MPI_COMM_WORLD, ERROR_INVALID_JSON);
 	}
@@ -713,7 +679,7 @@ int main(int argc, char *argv[]) {
 
 			i++;
 		} else {
-			printf("Unknown key: %.*s (ignored)\n", tokens[i].end - tokens[i].start, configuration + tokens[i].start);
+			log_warn("Unknown key: %.*s (ignored)", tokens[i].end - tokens[i].start, configuration + tokens[i].start);
 		}
 	}
 
@@ -802,23 +768,27 @@ int main(int argc, char *argv[]) {
 	MPI_Type_commit(&request_datatype);
 
 	if (is_forwarding) {
+		// Initialize the list with the ready requests
+		init_fwd_list_head(&ready_queue);
+
+		// Start the AGIOS scheduling library
 		start_AGIOS();
 
 		// Create threads to list for requests
 		pthread_t listen[FWD_MAX_LISTEN_THREADS];
-		pthread_t process[FWD_MAX_PROCESS_THREADS];
+		pthread_t dispatcher[FWD_MAX_PROCESS_THREADS];
+
+		// Create threads to issue the requests
+		for (i = 0; i < simulation_dispatchers; i++) {
+			pthread_create(&dispatcher[i], NULL, server_dispatcher, NULL);
+		}
 
 		for (i = 0; i < simulation_listeners; i++) {
 			pthread_create(&listen[i], NULL, server_listen, NULL);
 		}
 
-		// Initialize the list with the ready requests
-		init_fwd_list_head(&ready_queue);
-
-		// Create threads to issue the requests
-		for (i = 0; i < simulation_dispatchers; i++) {
-			pthread_create(&process[i], NULL, server_process, NULL);
-		}
+		// Wait for the intitialization of servers and clients to complete
+		MPI_Barrier(MPI_COMM_WORLD);
 
 		// Wait for listen threads to complete
 		for (i = 0; i < simulation_listeners; i++) {
@@ -827,16 +797,15 @@ int main(int argc, char *argv[]) {
 
 		// Wait for processing threads to complete
 		for (i = 0; i < simulation_dispatchers; i++) {
-			pthread_join(process[i], NULL);
+			pthread_join(dispatcher[i], NULL);
 		}
 
+		// Stops the AGIOS scheduling library
 		stop_AGIOS();
 
-		//#ifdef DEBUG
 		pthread_mutex_lock(&total_requests_lock);
-		printf("TOTAL REQUESTS (FWD #%d): %ld\n", forwarding_rank, total_requests);
+		log_info("TOTAL REQUESTS (FWD #%d): %ld", forwarding_rank, total_requests);
 		pthread_mutex_unlock(&total_requests_lock);
-		//#endif
 	} else {
 		int forwarding_fh;
 
@@ -845,11 +814,8 @@ int main(int argc, char *argv[]) {
 		// Define the forwarding server we should interact with
 		my_forwarding_server = get_forwarding_server();
 
-		#ifdef DEBUG
-		printf("RANK %d\tFORWARDER SERVER: %d\n", world_rank, my_forwarding_server);
-
-		printf("sending message from process %d of %d!\n", world_rank, world_size);
-		#endif
+		log_debug("RANK %d\tFORWARDER SERVER: %d", world_rank, my_forwarding_server);
+		log_debug("sending message from process %d of %d!", world_rank, world_size);
 
 		// Define the size per process
 		simulation_rank_size = ceil(simulation_total_size / client_size);
@@ -871,6 +837,9 @@ int main(int argc, char *argv[]) {
 			MPI_File_write(fh, &map, strlen(map), MPI_CHAR, &s);
 		}
 
+		// Wait for the intitialization of servers and clients to complete
+		MPI_Barrier(MPI_COMM_WORLD);
+
 		/*
 		 * OPEN ------------------------------------------------------------------------------------
 		 * Issue OPEN request to the forwarding layer
@@ -889,16 +858,12 @@ int main(int argc, char *argv[]) {
 		// Issue the OPEN operation, that should wait for it to complete
 		MPI_Send(r, 1, request_datatype, my_forwarding_server, TAG_REQUEST, MPI_COMM_WORLD); 
 
-		#ifdef DEBUG
-		printf("waiting for the file handle...\n");
-		#endif
-
+		log_debug("waiting for the file handle...");
+		
 		// We need to wait for the file handle to continue
 		MPI_Recv(&forwarding_fh, 1, MPI_INT, my_forwarding_server, TAG_HANDLE, MPI_COMM_WORLD, &status);
 
-		#ifdef DEBUG
-		printf("HANDLE received [id=%d] %d\n", request_id, forwarding_fh);
-		#endif
+		log_debug("HANDLE received [id=%d] %d", request_id, forwarding_fh);
 
 		/*
 		 * WRITE ------------------------------------------------------------------------------------
@@ -929,23 +894,17 @@ int main(int argc, char *argv[]) {
 			
 			r->size = simulation_request_size;
 
-			#ifdef DEBUG
-			printf("[OP][%d] %d %d %ld %ld\n", world_rank, r->operation, r->file_handle, r->offset, r->size);
-			#endif
+			log_debug("[OP][%d] %d %d %ld %ld", world_rank, r->operation, r->file_handle, r->offset, r->size);
 
 			// Issue the fake WRITE operation, that should wait for it to complete
 			MPI_Send(r, 1, request_datatype, my_forwarding_server, TAG_REQUEST, MPI_COMM_WORLD); 
 
-			#ifdef DEBUG
-			printf("waiting for the answer to come...\n");
-			#endif
+			log_debug("waiting for the answer to come...");
 
 			// We need to wait for the ACK so that the server is ready to receive our buffer and the request ID
 			MPI_Recv(&request_id, 1, MPI_INT, my_forwarding_server, TAG_ACK, MPI_COMM_WORLD, &status);
 
-			#ifdef DEBUG
-			printf("ACK received [id=%d], sending buffer...\n", request_id);
-			#endif
+			log_debug("ACK received [id=%d], sending buffer...", request_id);
 
 			int send_status;
 
@@ -954,9 +913,7 @@ int main(int argc, char *argv[]) {
 
 			assert(send_status == MPI_SUCCESS);
 
-			#ifdef DEBUG
-			printf("sent WRITE data to %d with length %ld\n", my_forwarding_server, r->size);
-			#endif
+			log_debug("sent WRITE data to %d with length %ld", my_forwarding_server, r->size);
 
 			// We need to wait for the ACK so that the server has finished to process our request
 			MPI_Recv(&ack, 1, MPI_INT, my_forwarding_server, TAG_ACK, MPI_COMM_WORLD, &status);
@@ -1030,9 +987,7 @@ int main(int argc, char *argv[]) {
 		// Issue the CLOSE operation, that should wait for it to complete
 		MPI_Send(r, 1, request_datatype, my_forwarding_server, TAG_REQUEST, MPI_COMM_WORLD); 
 
-		#ifdef DEBUG
-		printf("waiting for the close ACK...\n");
-		#endif
+		log_debug("waiting for the close ACK...");
 
 		// We need to wait for the file handle to continue
 		MPI_Recv(&forwarding_fh, 1, MPI_INT, my_forwarding_server, TAG_ACK, MPI_COMM_WORLD, &status);
@@ -1057,16 +1012,12 @@ int main(int argc, char *argv[]) {
 		// Issue the OPEN operation, that should wait for it to complete
 		MPI_Send(r, 1, request_datatype, my_forwarding_server, TAG_REQUEST, MPI_COMM_WORLD); 
 
-		#ifdef DEBUG
-		printf("waiting for the file handle...\n");
-		#endif
+		log_debug("waiting for the file handle...");
 
 		// We need to wait for the file handle to continue
 		MPI_Recv(&forwarding_fh, 1, MPI_INT, my_forwarding_server, TAG_HANDLE, MPI_COMM_WORLD, &status);
 
-		#ifdef DEBUG
-		printf("HANDLE received [id=%d] %d\n", request_id, forwarding_fh);
-		#endif
+		log_debug("HANDLE received [id=%d] %d", request_id, forwarding_fh);
 		
 		/*
 		 * READ ------------------------------------------------------------------------------------
@@ -1096,16 +1047,12 @@ int main(int argc, char *argv[]) {
 
 			r->size = simulation_request_size;
 
-			#ifdef DEBUG
-			printf("[OP][%d] %d %d %ld %ld\n", world_rank, r->operation, r->file_handle, r->offset, r->size);
-			#endif
+			log_debug("[OP][%d] %d %d %ld %ld", world_rank, r->operation, r->file_handle, r->offset, r->size);
 
 			// Issue the fake READ operation, that should wait for it to complete
 			MPI_Send(r, 1, request_datatype, my_forwarding_server, TAG_REQUEST, MPI_COMM_WORLD); 
 
-			#ifdef DEBUG
-			printf("waiting for the answer to come...\n");
-			#endif
+			log_debug("waiting for the answer to come...");
 
 			// We need to wait for the READ request to return before issuing another request
 			MPI_Recv(buffer, r->size, MPI_CHAR, my_forwarding_server, TAG_BUFFER, MPI_COMM_WORLD, &status);
@@ -1118,10 +1065,8 @@ int main(int argc, char *argv[]) {
 			// Make sure we received all the buffer
 			assert(r->size == size);
 
-			#ifdef DEBUG
 			// Discover the rank that sent us the message
-			printf("received READ data from %d with length %d\n", status.MPI_SOURCE, size);
-			#endif
+			log_debug("received READ data from %d with length %d", status.MPI_SOURCE, size);
 		}
 
 		clock_gettime(CLOCK_MONOTONIC, &end_time);
@@ -1149,9 +1094,7 @@ int main(int argc, char *argv[]) {
 		// Issue the CLOSE operation, that should wait for it to complete
 		MPI_Send(r, 1, request_datatype, my_forwarding_server, TAG_REQUEST, MPI_COMM_WORLD); 
 
-		#ifdef DEBUG
-		printf("waiting for the close ACK...\n");
-		#endif
+		log_debug("waiting for the close ACK...");
 
 		// We need to wait for the file handle to continue
 		MPI_Recv(&forwarding_fh, 1, MPI_INT, my_forwarding_server, TAG_ACK, MPI_COMM_WORLD, &status);
@@ -1220,9 +1163,7 @@ int main(int argc, char *argv[]) {
 
 		MPI_Barrier(clients_comm);
 
-		#ifdef DEBUG
-		printf("rank %d is sending SHUTDOWN signal\n", world_rank);
-		#endif
+		log_debug("rank %d is sending SHUTDOWN signal", world_rank);
 
 		// Send shutdown message
 		MPI_Send(buffer, EMPTY, MPI_CHAR, my_forwarding_server, TAG_REQUEST, MPI_COMM_WORLD);

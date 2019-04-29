@@ -97,3 +97,15 @@ struct opened_handles {
 
 	UT_hash_handle hh;
 };
+
+unsigned long generate_identifier();
+
+void callback(unsigned long long int id);
+
+void start_AGIOS();
+void stop_AGIOS();
+
+int get_forwarding_server();
+
+void *server_listen(void *p);
+void *server_dispatcher(void *p);
