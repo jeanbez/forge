@@ -662,6 +662,9 @@ int main(int argc, char *argv[]) {
 	char *simulation_file;
 	char *simulation_spatiality_name;
 
+	int simulation_listeners;
+	int simulation_dispatchers;
+
 	int simulation_spatiality;
 	unsigned long simulation_request_size;
 	unsigned long simulation_total_size;
@@ -673,6 +676,14 @@ int main(int argc, char *argv[]) {
 	for (i = 1; i < ret; i++) {
 		if (jsoneq(configuration, &tokens[i], "forwarders") == 0) {
 			simulation_forwarders = atoi(strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start));
+
+			i++;
+		} else if (jsoneq(configuration, &tokens[i], "listeners") == 0) {
+			simulation_listeners = atoi(strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start));
+
+			i++;
+		} else if (jsoneq(configuration, &tokens[i], "dispatchers") == 0) {
+			simulation_dispatchers = atoi(strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start));
 
 			i++;
 		} else if (jsoneq(configuration, &tokens[i], "file") == 0) {
@@ -714,6 +725,16 @@ int main(int argc, char *argv[]) {
 
 	// Make sure we have a balanced number of clients for each forwading server
 	if (world_size % simulation_forwarders) {
+		MPI_Abort(MPI_COMM_WORLD, ERROR_INVALID_SETUP);
+	}
+
+	// Make sure the number of listeners is within limits
+	if (simulation_listeners > FWD_MAX_LISTEN_THREADS) {
+		MPI_Abort(MPI_COMM_WORLD, ERROR_INVALID_SETUP);
+	}
+
+	// Make sure the number of dispatchers is within limits
+	if (simulation_dispatchers > FWD_MAX_PROCESS_THREADS) {
 		MPI_Abort(MPI_COMM_WORLD, ERROR_INVALID_SETUP);
 	}
 
@@ -784,10 +805,10 @@ int main(int argc, char *argv[]) {
 		start_AGIOS();
 
 		// Create threads to list for requests
-		pthread_t listen[FWD_LISTEN_THREADS];
-		pthread_t process[FWD_PROCESS_THREADS];
+		pthread_t listen[FWD_MAX_LISTEN_THREADS];
+		pthread_t process[FWD_MAX_PROCESS_THREADS];
 
-		for (i = 0; i < FWD_LISTEN_THREADS; i++) {
+		for (i = 0; i < simulation_listeners; i++) {
 			pthread_create(&listen[i], NULL, server_listen, NULL);
 		}
 
@@ -795,17 +816,17 @@ int main(int argc, char *argv[]) {
 		init_fwd_list_head(&ready_queue);
 
 		// Create threads to issue the requests
-		for (i = 0; i < FWD_PROCESS_THREADS; i++) {
+		for (i = 0; i < simulation_dispatchers; i++) {
 			pthread_create(&process[i], NULL, server_process, NULL);
 		}
 
 		// Wait for listen threads to complete
-		for (i = 0; i < FWD_LISTEN_THREADS; i++) {
+		for (i = 0; i < simulation_listeners; i++) {
 			pthread_join(listen[i], NULL);
 		}
 
 		// Wait for processing threads to complete
-		for (i = 0; i < FWD_PROCESS_THREADS; i++) {
+		for (i = 0; i < simulation_dispatchers; i++) {
 			pthread_join(process[i], NULL);
 		}
 

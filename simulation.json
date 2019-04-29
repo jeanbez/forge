@@ -1,5 +1,7 @@
 {
-	"forwarders": "1",
+	"forwarders": "2",
+	"listeners": "16",
+	"dispatchers": "16",
 	"file": "/tmp/test",
 	"spatiality": "strided",
 	"total_size": "327680",
