@@ -444,7 +444,7 @@ void *server_dispatcher(void *p) {
 		log_debug("[P-%ld] Pending requests: %u", pthread_self(), HASH_COUNT(requests));
 		pthread_mutex_unlock(&requests_lock);
 		
-		printf("[P-%ld] Request ID: %u", pthread_self(), request_id);
+		log_debug("[P-%ld] Request ID: %u", pthread_self(), request_id);
 		#endif
 
 		// Get the request from the hash
@@ -540,6 +540,12 @@ int main(int argc, char *argv[]) {
 	log_set_level(LOG_TRACE);
 	#endif
 
+	if (argc != 2) {
+		printf("Usage: ./fwd-sim <simulation.json>\n");
+
+		return 0;
+	}
+
 	char *buffer = malloc(MAXIMUM_REQUEST_SIZE * sizeof(char));
 
 	if (buffer == NULL) {
@@ -575,9 +581,11 @@ int main(int argc, char *argv[]) {
 	FILE *json_file;
 	char *configuration;
 	long bytes;
+
+	char *base_file = argv[1];
 	 
 	// Open the JSON configuration file for reading
-	json_file = fopen("simulation.json", "r");
+	json_file = fopen(base_file, "r");
 	 
 	// Quit if the file does not exist
 	if (json_file == NULL) {
@@ -598,7 +606,7 @@ int main(int argc, char *argv[]) {
 	if (configuration == NULL) {
 		return 1;
 	}
-	 
+
 	// Copy all the text into the configuration
 	fread(configuration, sizeof(char), bytes, json_file);
 
@@ -606,7 +614,7 @@ int main(int argc, char *argv[]) {
 	fclose(json_file);
 
 	jsmn_parser parser;
-	jsmntok_t tokens[512];
+	jsmntok_t tokens[1024];
 
 	jsmn_init(&parser);
 
@@ -625,13 +633,19 @@ int main(int argc, char *argv[]) {
 	}
 
 	// Simulation configuration
-	char *simulation_file;
+	char *simulation_path;
+	char *simulation_files_name;
 	char *simulation_spatiality_name;
+
+	char simulation_map_file[255];
+	char simulation_time_file[255];
 
 	int simulation_listeners;
 	int simulation_dispatchers;
 
+	int simulation_files;
 	int simulation_spatiality;
+
 	unsigned long simulation_request_size;
 	unsigned long simulation_total_size;
 	unsigned long simulation_rank_size;
@@ -652,24 +666,38 @@ int main(int argc, char *argv[]) {
 			simulation_dispatchers = atoi(strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start));
 
 			i++;
-		} else if (jsoneq(configuration, &tokens[i], "file") == 0) {
-			simulation_file = strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start);
+		} else if (jsoneq(configuration, &tokens[i], "path") == 0) {
+			simulation_path = strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start);
 
 			i++;
+		} else if (jsoneq(configuration, &tokens[i], "number_of_files") == 0) {
+			simulation_files_name = strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start);
+
+			i++;
+
+			// Check for supported spatialities
+			if (strcmp("shared", simulation_files_name) == 0) {
+				simulation_files = SHARED;
+			} else if (strcmp("individual", simulation_files_name) == 0) {
+				simulation_files = INDIVIDUAL;
+			} else {
+				// Handle unkown patterns
+				MPI_Abort(MPI_COMM_WORLD, ERROR_INVALID_PATTERN);
+			}
 		} else if (jsoneq(configuration, &tokens[i], "spatiality") == 0) {
 			simulation_spatiality_name = strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start);
 
 			i++;
 
 			// Check for supported spatialities
-			if (strcmp("contiguous", simulation_spatiality_name) != 0) {
+			if (strcmp("contiguous", simulation_spatiality_name) == 0) {
 				simulation_spatiality = CONTIGUOUS;
-			} else if (strcmp("strided", simulation_spatiality_name) != 0) {
+			} else if (strcmp("strided", simulation_spatiality_name) == 0) {
 				simulation_spatiality = STRIDED;
 			} else {
 				// Handle unkown patterns
 				MPI_Abort(MPI_COMM_WORLD, ERROR_INVALID_PATTERN);
-			}			
+			}		
 		} else if (jsoneq(configuration, &tokens[i], "total_size") == 0) {
 			simulation_total_size = strtoul(strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start), NULL, 10);
 
@@ -681,6 +709,13 @@ int main(int argc, char *argv[]) {
 		} else {
 			log_warn("Unknown key: %.*s (ignored)", tokens[i].end - tokens[i].start, configuration + tokens[i].start);
 		}
+	}
+
+	// Verify for an invalid pattern: individual files with 1D strided accesses
+	if (simulation_files == INDIVIDUAL && simulation_spatiality == STRIDED) {
+		log_error("invalid access pattern");
+
+		MPI_Abort(MPI_COMM_WORLD, ERROR_INVALID_PATTERN);
 	}
 
 	// Before proceeding we need to make sure we have the minimum number of processes to simulate
@@ -730,8 +765,11 @@ int main(int argc, char *argv[]) {
 	MPI_File fh;
 	MPI_Status s;
 
+	sprintf(simulation_map_file, "%s.map", base_file);
+	sprintf(simulation_time_file, "%s.time", base_file);
+
 	// Snapshot of the simulation configuration
-	MPI_File_open(MPI_COMM_WORLD, "simulation.map", MPI_MODE_CREATE|MPI_MODE_WRONLY, MPI_INFO_NULL, &fh);
+	MPI_File_open(MPI_COMM_WORLD, simulation_map_file, MPI_MODE_CREATE|MPI_MODE_WRONLY, MPI_INFO_NULL, &fh);
 
 	char map[1024];
 	sprintf(map, "rank %d: %s\n", world_rank, (is_forwarding ? "server" : "client"));
@@ -828,7 +866,7 @@ int main(int argc, char *argv[]) {
 		}
 
 		if (client_rank == 0) {
-			MPI_File_open(MPI_COMM_SELF, "statistics.time", MPI_MODE_CREATE|MPI_MODE_WRONLY, MPI_INFO_NULL, &fh);
+			MPI_File_open(MPI_COMM_SELF, simulation_time_file, MPI_MODE_CREATE|MPI_MODE_WRONLY, MPI_INFO_NULL, &fh);
 
 			sprintf(map, "---------------------------\n I/O Forwarding Simulation\n---------------------------\n");
 			MPI_File_write(fh, &map, strlen(map), MPI_CHAR, &s);
@@ -840,6 +878,12 @@ int main(int argc, char *argv[]) {
 		// Wait for the intitialization of servers and clients to complete
 		MPI_Barrier(MPI_COMM_WORLD);
 
+		// Handle individual files by renaming the output once
+		if (simulation_files == INDIVIDUAL) {
+			// Each process should open its file
+			sprintf(simulation_path, "%s-%03d", simulation_path, client_rank);
+		}
+
 		/*
 		 * OPEN ------------------------------------------------------------------------------------
 		 * Issue OPEN request to the forwarding layer
@@ -850,7 +894,7 @@ int main(int argc, char *argv[]) {
 		r = (struct request *) malloc(sizeof(struct request));
 
 		r->operation = OPEN;
-		strcpy(r->file_name, simulation_file);
+		strcpy(r->file_name, simulation_path);
 		r->file_handle = -1;
 		r->offset = 0;
 		r->size = 1;
@@ -979,7 +1023,7 @@ int main(int argc, char *argv[]) {
 		r = (struct request *) malloc(sizeof(struct request));
 
 		r->operation = CLOSE;
-		strcpy(r->file_name, simulation_file);
+		strcpy(r->file_name, simulation_path);
 		r->file_handle = -1;
 		r->offset = 0;
 		r->size = 1;
@@ -1004,7 +1048,7 @@ int main(int argc, char *argv[]) {
 		r = (struct request *) malloc(sizeof(struct request));
 
 		r->operation = OPEN;
-		strcpy(r->file_name, simulation_file);
+		strcpy(r->file_name, simulation_path);
 		r->file_handle = -1;
 		r->offset = 0;
 		r->size = 1;
@@ -1086,7 +1130,7 @@ int main(int argc, char *argv[]) {
 		r = (struct request *) malloc(sizeof(struct request));
 
 		r->operation = CLOSE;
-		strcpy(r->file_name, simulation_file);
+		strcpy(r->file_name, simulation_path);
 		r->file_handle = -1;
 		r->offset = 0;
 		r->size = 1;

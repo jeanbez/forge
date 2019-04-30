@@ -2,7 +2,8 @@
 	"forwarders": "2",
 	"listeners": "16",
 	"dispatchers": "16",
-	"file": "/tmp/test",
+	"path": "/tmp/test",
+	"number_of_files": "individual",
 	"spatiality": "strided",
 	"total_size": "327680",
 	"request_size": "32768"

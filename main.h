@@ -34,6 +34,9 @@
 #define TAG_ACK 10003
 #define TAG_HANDLE 10004
 
+#define INDIVIDUAL 0
+#define SHARED 1
+
 #define CONTIGUOUS 0
 #define STRIDED 1
 
