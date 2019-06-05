@@ -101,6 +101,17 @@ struct opened_handles {
 	UT_hash_handle hh;
 };
 
+// Structure to store statistics of requests in each forwarding
+struct forwarding_statistics {
+	unsigned long int open;
+	unsigned long int read;
+	unsigned long int write;
+	unsigned long int close;
+
+	unsigned long int read_size;
+	unsigned long int write_size;
+};
+
 unsigned long generate_identifier();
 
 void callback(unsigned long long int id);
