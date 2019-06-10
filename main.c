@@ -75,10 +75,10 @@ void callback(unsigned long long int id) {
 	}
 	#endif
 
+	pthread_mutex_unlock(&ready_queue_mutex);
+
 	// Signal the condition variable that new data is available in the queue
 	pthread_cond_signal(&ready_queue_signal);
-
-	pthread_mutex_unlock(&ready_queue_mutex);
 }
 
 void callback_aggregated(unsigned long long int *ids, int total) {
@@ -105,10 +105,10 @@ void callback_aggregated(unsigned long long int *ids, int total) {
 		#endif
 	}
 
+	pthread_mutex_unlock(&ready_queue_mutex);
+
 	// Signal the condition variable that new data is available in the queue
 	pthread_cond_signal(&ready_queue_signal);
-
-	pthread_mutex_unlock(&ready_queue_mutex);
 }
 
 void stop_AGIOS() {
@@ -187,7 +187,7 @@ void *server_listen(void *p) {
 
 			// If all the nodes requested a shutdown, we can proceed
 			if (shutdown == (world_size - simulation_forwarders) / simulation_forwarders) {
-				log_debug("SHUTDOWN: listen %d thread %ld", world_rank, pthread_self());
+				log_info("SHUTDOWN: listen %d thread %ld", world_rank, pthread_self());
 
 				// We need to signal the processing thread to proceed and check for shutdown
 				pthread_cond_signal(&ready_queue_signal);
@@ -948,22 +948,26 @@ int main(int argc, char *argv[]) {
 		// Wait for the intitialization of servers and clients to complete
 		MPI_Barrier(MPI_COMM_WORLD);
 
-		// Wait for listen threads to complete
-		for (i = 0; i < simulation_listeners; i++) {
-			pthread_join(listen[i], NULL);
-		}
-
 		// Wait for processing threads to complete
 		for (i = 0; i < simulation_dispatchers; i++) {
 			pthread_join(dispatcher[i], NULL);
 		}
 
-		MPI_Barrier(forwarding_comm);
+		// Wait for listen threads to complete
+		for (i = 0; i < simulation_listeners; i++) {
+			printf("to join %d\n", i);
+			pthread_join(listen[i], NULL);
+			printf("joined %d\n", i);
+		}
+
+		printf("barrier!\n");
+
+		MPI_Barrier(MPI_COMM_WORLD);
+
+		printf("trough the barrier!\n");
 
 		// Stops the AGIOS scheduling library
 		stop_AGIOS();
-
-		MPI_Barrier(forwarding_comm);
 
 		// Write the forwarding statistics to file
 		MPI_File_open(forwarding_comm, simulation_stats_file, MPI_MODE_CREATE|MPI_MODE_WRONLY, MPI_INFO_NULL, &fh);
@@ -1365,6 +1369,8 @@ int main(int argc, char *argv[]) {
 
 		// Send shutdown message
 		MPI_Send(buffer, EMPTY, MPI_CHAR, my_forwarding_server, TAG_REQUEST, MPI_COMM_WORLD);
+
+		MPI_Barrier(MPI_COMM_WORLD);
 	}
 
 	MPI_Barrier(MPI_COMM_WORLD);
