@@ -962,7 +962,7 @@ int main(int argc, char *argv[]) {
 
 		printf("barrier!\n");
 
-		MPI_Barrier(MPI_COMM_WORLD);
+		MPI_Barrier(forwarding_comm);
 
 		printf("trough the barrier!\n");
 
@@ -1369,8 +1369,6 @@ int main(int argc, char *argv[]) {
 
 		// Send shutdown message
 		MPI_Send(buffer, EMPTY, MPI_CHAR, my_forwarding_server, TAG_REQUEST, MPI_COMM_WORLD);
-
-		MPI_Barrier(MPI_COMM_WORLD);
 	}
 
 	MPI_Barrier(MPI_COMM_WORLD);
