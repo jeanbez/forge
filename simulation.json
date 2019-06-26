@@ -3,8 +3,8 @@
 	"listeners": "16",
 	"dispatchers": "16",
 	"path": "/tmp/test",
-	"number_of_files": "individual",
-	"spatiality": "strided",
-	"total_size": "327680",
+	"number_of_files": "shared",
+	"spatiality": "contiguous",
+	"total_size": "33554432",
 	"request_size": "32768"
 }
