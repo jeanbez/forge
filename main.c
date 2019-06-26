@@ -202,7 +202,6 @@ void *server_listen(void *p) {
 		}
 		
 		// We hace received a message as we have passed the loop
-
 		MPI_Get_count(&status, request_datatype, &i);
 
 		// Discover the rank that sent us the message
@@ -215,6 +214,9 @@ void *server_listen(void *p) {
 			pthread_mutex_lock(&shutdown_lock);
 			shutdown++;
 			pthread_mutex_unlock(&shutdown_lock);
+
+			// We need to signal the processing thread to proceed and check for shutdown
+			pthread_cond_signal(&ready_queue_signal);
 
 			continue;
 		}
@@ -557,6 +559,9 @@ void *server_dispatcher(void *p) {
 		pthread_mutex_lock(&requests_lock);
 		HASH_DEL(requests, r);
 		pthread_mutex_unlock(&requests_lock);
+
+		// We need to signal the processing thread to proceed and check for shutdown
+		pthread_cond_signal(&ready_queue_signal);
 
 		// Free the buffer and the request
 		free(r->buffer);
@@ -955,9 +960,7 @@ int main(int argc, char *argv[]) {
 
 		// Wait for listen threads to complete
 		for (i = 0; i < simulation_listeners; i++) {
-			printf("to join %d\n", i);
 			pthread_join(listen[i], NULL);
-			printf("joined %d\n", i);
 		}
 
 		printf("barrier!\n");
