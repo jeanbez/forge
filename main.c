@@ -59,7 +59,7 @@ pthread_cond_t ready_queue_signal;
 struct ready_request *tmp;
 #endif
 
-void safe_free(void **pointer_address) {
+void safe_memory_free(void ** pointer_address) {
 	if (pointer_address != NULL && *pointer_address != NULL) {
 		free (*pointer_address);
 
@@ -197,14 +197,14 @@ void *server_listen(void *p) {
 		MPI_Test(&request, &flag, &status);
 
 		while (!flag) {
-			// While we do not receive a message we need to continously check for shutdown status
-
 			// If all the nodes requested a shutdown, we can proceed
 			if (shutdown == (world_size - simulation_forwarders) / simulation_forwarders) {
-				log_info("SHUTDOWN: listen %d thread %ld", world_rank, pthread_self());
+				log_debug("SHUTDOWN: listen %d thread %ld", world_rank, pthread_self());
 
 				// We need to signal the processing thread to proceed and check for shutdown
-				pthread_cond_signal(&ready_queue_signal);
+				pthread_mutex_lock(&ready_queue_mutex);
+				pthread_cond_broadcast(&ready_queue_signal);
+				pthread_mutex_unlock(&ready_queue_mutex);
 
 				// We need to cancel the MPI_Irecv
 				MPI_Cancel(&request);
@@ -214,7 +214,7 @@ void *server_listen(void *p) {
 
 			MPI_Test(&request, &flag, &status);
 		}
-		
+
 		// We hace received a message as we have passed the loop
 		MPI_Get_count(&status, request_datatype, &i);
 
@@ -228,9 +228,6 @@ void *server_listen(void *p) {
 			pthread_mutex_lock(&shutdown_lock);
 			shutdown++;
 			pthread_mutex_unlock(&shutdown_lock);
-
-			// We need to signal the processing thread to proceed and check for shutdown
-			pthread_cond_signal(&ready_queue_signal);
 
 			continue;
 		}
@@ -471,21 +468,19 @@ void *server_dispatcher(void *p) {
 
 		// While the queue is empty wait for the condition variable to be signalled
 		while (fwd_list_empty(&ready_queue)) {
-			// This call unlocks the mutex when called and relocks it before returning!
-			pthread_cond_wait(&ready_queue_signal, &ready_queue_mutex);
-
 			// Check for shutdown signal
 			if (shutdown == (world_size - simulation_forwarders) / simulation_forwarders) {
+				
 				// Unlock the queue mutex to allow other threads to complete
 				pthread_mutex_unlock(&ready_queue_mutex);
 
-				// We need to signal the processing thread to proceed and check for shutdown
-				pthread_cond_signal(&ready_queue_signal);
-
-				log_info("SHUTDOWN: dispatcher %d thread %ld", world_rank, pthread_self());
+				log_debug("SHUTDOWN: dispatcher %d thread %ld", world_rank, pthread_self());
 
 				return NULL;
 			}
+
+			// This call unlocks the mutex when called and relocks it before returning!
+			pthread_cond_wait(&ready_queue_signal, &ready_queue_mutex);
 		}
 
 		// There must be data in the ready queue, so we can get it
@@ -642,13 +637,9 @@ int main(int argc, char *argv[]) {
 	// Get my rank among all the processes
 	MPI_Comm_rank(MPI_COMM_WORLD, &world_rank); 
 
-	// Get the name of the processor
-	char processor_name[MPI_MAX_PROCESSOR_NAME];
-	int name_len;
-	MPI_Get_processor_name(processor_name, &name_len);
-
-	// Print off a hello world message
-	log_debug("Hello world from processor %s, rank %d out of %d processors", processor_name, world_rank, world_size);
+	if (world_rank == 0) {
+		log_info("I/O Forwarding Emulation [START]");
+	}
 
 	FILE *json_file;
 	char *configuration;
@@ -977,11 +968,7 @@ int main(int argc, char *argv[]) {
 			pthread_join(listen[i], NULL);
 		}
 
-		printf("barrier!\n");
-
 		MPI_Barrier(forwarding_comm);
-
-		printf("trough the barrier!\n");
 
 		// Stops the AGIOS scheduling library
 		stop_AGIOS();
@@ -1382,7 +1369,7 @@ int main(int argc, char *argv[]) {
 
 		MPI_Barrier(clients_comm);
 
-		log_info("rank %d is sending SHUTDOWN signal", world_rank);
+		log_debug("rank %d is sending SHUTDOWN signal to fwd %d", world_rank, my_forwarding_server);
 
 		// Send shutdown message
 		MPI_Send(buffer, EMPTY, MPI_CHAR, my_forwarding_server, TAG_REQUEST, MPI_COMM_WORLD);
@@ -1408,6 +1395,10 @@ int main(int argc, char *argv[]) {
 
 	// Free the buffer
 	safe_free(buffer);
+
+	if (world_rank == 0) {
+		log_info("I/O Forwarding Emulation [COMPLETE]");
+	}
 
 	// Shut down MPI
 	MPI_Finalize(); 

@@ -1,5 +1,5 @@
 CC=mpicc
-CFLAGS=-c -Wall #-DDEBUG
+CFLAGS=-c -Wall -g #-DDEBUG
 LDFLAGS=-lagios -lgsl -lgslcblas -lm -L. -ljsmn
 SOURCES=main.c jsmn.c log.c fwd_list.c
 OBJECTS=$(SOURCES:.c=.o)
