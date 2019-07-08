@@ -123,3 +123,5 @@ int get_forwarding_server();
 
 void *server_listen(void *p);
 void *server_dispatcher(void *p);
+
+void safe_memory_free(void **pointer_address);

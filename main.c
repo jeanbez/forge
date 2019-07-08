@@ -1,6 +1,10 @@
 #include "main.h"
 #include "log.h"
 
+#define safe_free(pointer) safe_memory_free((void **) &(pointer))
+
+// https://efxa.org/2014/10/18/a-safe-wrapper-implemented-in-c-for-freeing-dynamic-allocated-memory/
+
 const int MAX_STRING = 100;
 const int EMPTY = 0;
 
@@ -54,6 +58,16 @@ pthread_cond_t ready_queue_signal;
 #ifdef DEBUG
 struct ready_request *tmp;
 #endif
+
+void safe_free(void **pointer_address) {
+	if (pointer_address != NULL && *pointer_address != NULL) {
+		free (*pointer_address);
+
+		*pointer_address = NULL;
+	} else {
+		printf("check the code!\n");
+	}
+}
 
 void callback(unsigned long long int id) {
 	// Create the ready request
@@ -405,7 +419,7 @@ void *server_listen(void *p) {
 					// Remove the request from the hash
 					HASH_DEL(opened_files, h);
 
-					free(h);
+					safe_free(h);
 				} else {
 					struct opened_handles *tmp = (struct opened_handles *) malloc(sizeof(struct opened_handles));
 
@@ -485,7 +499,7 @@ void *server_dispatcher(void *p) {
 		// Remove it from the queue
 		fwd_list_del(&ready_r->list);
 
-		free(ready_r);
+		safe_free(ready_r);
 
 		// Unlock the queue mutex
 		pthread_mutex_unlock(&ready_queue_mutex);
@@ -564,8 +578,8 @@ void *server_dispatcher(void *p) {
 		pthread_cond_signal(&ready_queue_signal);
 
 		// Free the buffer and the request
-		free(r->buffer);
-		free(r);
+		safe_free(r->buffer);
+		safe_free(r);
 	}
 
 	return NULL;
@@ -770,7 +784,7 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	free(configuration);
+	safe_free(configuration);
 
 	// Verify for an invalid pattern: individual files with 1D strided accesses
 	if (simulation_files == INDIVIDUAL && simulation_spatiality == STRIDED) {
@@ -859,8 +873,8 @@ int main(int argc, char *argv[]) {
 	// create the new communicator for the forwarding servers
 	MPI_Comm_create(MPI_COMM_WORLD, clients_group, &clients_comm);
 
-	free(forwarding_ranks);
-	free(client_ranks);
+	safe_free(forwarding_ranks);
+	safe_free(client_ranks);
 
 	int forwarding_rank, forwarding_size;
 	if (forwarding_comm != MPI_COMM_NULL) {
@@ -1158,7 +1172,7 @@ int main(int argc, char *argv[]) {
 			MPI_File_write(fh, &map, strlen(map), MPI_CHAR, &s);
 
 			// Free the statistics related to each rank
-			free(rank_elapsed);
+			safe_free(rank_elapsed);
 		}
 		
 		MPI_Barrier(clients_comm);
@@ -1343,16 +1357,16 @@ int main(int argc, char *argv[]) {
 			MPI_File_write(fh, &map, strlen(map), MPI_CHAR, &s);
 
 			// Free the statistics related to each rank
-			free(rank_elapsed);
+			safe_free(rank_elapsed);
 		}
 
 		MPI_Barrier(clients_comm);
 
 		// Free the request
-		free(r);
+		safe_free(r);
 
 		if (is_forwarding) {
-			free(statistics);
+			safe_free(statistics);
 		}
 
 		/*
@@ -1393,7 +1407,7 @@ int main(int argc, char *argv[]) {
 	MPI_Type_free(&request_datatype);
 
 	// Free the buffer
-	free(buffer);
+	safe_free(buffer);
 
 	// Shut down MPI
 	MPI_Finalize(); 

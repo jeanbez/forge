@@ -4,7 +4,7 @@
 	"dispatchers": "16",
 	"path": "/tmp/test",
 	"number_of_files": "shared",
-	"spatiality": "contiguous",
+	"spatiality": "strided",
 	"total_size": "33554432",
 	"request_size": "32768"
 }
