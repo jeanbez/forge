@@ -57,6 +57,7 @@
 #define ERROR_UNKNOWN_REQUEST_TYPE 70012
 #define ERROR_INVALID_FILE_HANDLE 70013
 #define ERROR_FAILED_TO_CLOSE 70014
+#define ERROR_INVALID_VALIDATION 70015
 
 struct request {
 	char file_name[255];
@@ -124,4 +125,4 @@ int get_forwarding_server();
 void *server_listen(void *p);
 void *server_dispatcher(void *p);
 
-void safe_memory_free(void ** pointer_address);
+void safe_memory_free(void ** pointer_address, char * id);

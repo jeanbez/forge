@@ -5,6 +5,7 @@
 	"path": "/tmp/test",
 	"number_of_files": "shared",
 	"spatiality": "strided",
-	"total_size": "3276800",
-	"request_size": "32768"
+	"total_size": "200",
+	"request_size": "10",
+	"validation": "1"
 }

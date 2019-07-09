@@ -1,7 +1,7 @@
 #include "main.h"
 #include "log.h"
 
-#define safe_free(pointer) safe_memory_free((void **) &(pointer))
+#define safe_free(pointer, id) safe_memory_free((void **) &(pointer), id)
 
 // https://efxa.org/2014/10/18/a-safe-wrapper-implemented-in-c-for-freeing-dynamic-allocated-memory/
 
@@ -59,13 +59,15 @@ pthread_cond_t ready_queue_signal;
 struct ready_request *tmp;
 #endif
 
-void safe_memory_free(void ** pointer_address) {
+void safe_memory_free(void ** pointer_address, char *id) {
 	if (pointer_address != NULL && *pointer_address != NULL) {
-		free (*pointer_address);
+		free(*pointer_address);
 
 		*pointer_address = NULL;
 	} else {
-		printf("check the code!\n");
+		printf("check the code! id: %s\n", id);
+
+		exit(-1);
 	}
 }
 
@@ -416,7 +418,7 @@ void *server_listen(void *p) {
 					// Remove the request from the hash
 					HASH_DEL(opened_files, h);
 
-					safe_free(h);
+					safe_free(h, "server_listen::001");
 				} else {
 					struct opened_handles *tmp = (struct opened_handles *) malloc(sizeof(struct opened_handles));
 
@@ -494,7 +496,7 @@ void *server_dispatcher(void *p) {
 		// Remove it from the queue
 		fwd_list_del(&ready_r->list);
 
-		safe_free(ready_r);
+		safe_free(ready_r, "server_dispatcher::001");
 
 		// Unlock the queue mutex
 		pthread_mutex_unlock(&ready_queue_mutex);
@@ -573,8 +575,10 @@ void *server_dispatcher(void *p) {
 		pthread_cond_signal(&ready_queue_signal);
 
 		// Free the buffer and the request
-		safe_free(r->buffer);
-		safe_free(r);
+		if (r->operation != WRITE || r->operation == READ) {
+			safe_free(r->buffer, "server_dispatcher::002");
+		}
+		safe_free(r, "server_dispatcher::003");
 	}
 
 	return NULL;
@@ -600,6 +604,14 @@ int main(int argc, char *argv[]) {
 	double elapsed_min, elapsed_q1, elapsed_mean, elapsed_q2, elapsed_q3, elapsed_max;
 
 	MPI_Status status;
+
+	// Open log file
+	FILE *log_file;
+
+	log_file = fopen("emulator.log", "a+");
+
+	// Define the log file to be used
+	log_set_fp(log_file);
 
 	log_set_level(LOG_INFO);
 
@@ -710,6 +722,8 @@ int main(int argc, char *argv[]) {
 	int simulation_files;
 	int simulation_spatiality;
 
+	int simulation_validation;
+
 	unsigned long simulation_request_size;
 	unsigned long simulation_total_size;
 	unsigned long simulation_rank_size;
@@ -761,7 +775,7 @@ int main(int argc, char *argv[]) {
 			} else {
 				// Handle unkown patterns
 				MPI_Abort(MPI_COMM_WORLD, ERROR_INVALID_PATTERN);
-			}		
+			}
 		} else if (jsoneq(configuration, &tokens[i], "total_size") == 0) {
 			simulation_total_size = strtoul(strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start), NULL, 10);
 
@@ -770,12 +784,21 @@ int main(int argc, char *argv[]) {
 			simulation_request_size = strtoul(strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start), NULL, 10);
 
 			i++;
+		} else if (jsoneq(configuration, &tokens[i], "validation") == 0) {
+			simulation_validation = atoi(strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start));
+
+			i++;
+
+			if (simulation_validation < 0 || simulation_validation > 1) {
+				// Handle unkown validation
+				MPI_Abort(MPI_COMM_WORLD, ERROR_INVALID_VALIDATION);
+			}
 		} else {
 			log_warn("Unknown key: %.*s (ignored)", tokens[i].end - tokens[i].start, configuration + tokens[i].start);
 		}
 	}
 
-	safe_free(configuration);
+	safe_free(configuration, "main_configuration::001");
 
 	// Verify for an invalid pattern: individual files with 1D strided accesses
 	if (simulation_files == INDIVIDUAL && simulation_spatiality == STRIDED) {
@@ -864,8 +887,8 @@ int main(int argc, char *argv[]) {
 	// create the new communicator for the forwarding servers
 	MPI_Comm_create(MPI_COMM_WORLD, clients_group, &clients_comm);
 
-	safe_free(forwarding_ranks);
-	safe_free(client_ranks);
+	safe_free(forwarding_ranks, "main_ranks:001");
+	safe_free(client_ranks, "main_ranks:002");
 
 	int forwarding_rank, forwarding_size;
 	if (forwarding_comm != MPI_COMM_NULL) {
@@ -978,7 +1001,7 @@ int main(int argc, char *argv[]) {
 
 		char stats[1048576];
 
-		sprintf(stats, "forwarder: %d\nopen: %ld\nread: %ld\nwrite: %ld\nclose: %ld\nread_size: %ld\nwrite_size: %ld\n\n", forwarding_rank, statistics->open, statistics->read, statistics->write, statistics->close, statistics->read_size, statistics->write_size);		
+		sprintf(stats, "forwarder: %d\nopen: %ld\nread: %ld\nwrite: %ld\nclose: %ld\nread_size: %ld\nwrite_size: %ld\n\n", forwarding_rank, statistics->open, statistics->read, statistics->write, statistics->close, statistics->read_size, statistics->write_size);
 
 		// Write the subarray
 		MPI_File_write_ordered(fh, &stats, strlen(stats), MPI_CHAR, &s);
@@ -1003,7 +1026,7 @@ int main(int argc, char *argv[]) {
 
 		// Fill the buffer with fake data to be written
 		for (b = 0; b < simulation_request_size; b++) {
-			buffer[b] = '0' + world_rank;
+			buffer[b] = 'a' + world_rank;
 		}
 
 		if (client_rank == 0) {
@@ -1012,7 +1035,7 @@ int main(int argc, char *argv[]) {
 			sprintf(map, "---------------------------\n I/O Forwarding Simulation\n---------------------------\n");
 			MPI_File_write(fh, &map, strlen(map), MPI_CHAR, &s);
 
-			sprintf(map, " forwarders: %13d\n clients:    %13d\n spatiality: %13d\n request:    %13ld\n total:      %13ld\n---------------------------\n\n", world_size - client_size, client_size, simulation_spatiality, simulation_request_size, simulation_total_size);
+			sprintf(map, " forwarders: %13d\n clients:    %13d\n layout: %13d\n spatiality: %13d\n request:    %13ld\n total:      %13ld\n---------------------------\n\n", world_size - client_size, client_size, simulation_files, simulation_spatiality, simulation_request_size, simulation_total_size);
 			MPI_File_write(fh, &map, strlen(map), MPI_CHAR, &s);
 		}
 
@@ -1159,7 +1182,7 @@ int main(int argc, char *argv[]) {
 			MPI_File_write(fh, &map, strlen(map), MPI_CHAR, &s);
 
 			// Free the statistics related to each rank
-			safe_free(rank_elapsed);
+			safe_free(rank_elapsed, "main_elapsed:001");
 		}
 		
 		MPI_Barrier(clients_comm);
@@ -1188,6 +1211,9 @@ int main(int argc, char *argv[]) {
 		MPI_Recv(&forwarding_fh, 1, MPI_INT, my_forwarding_server, TAG_ACK, MPI_COMM_WORLD, &status);
 
 		MPI_Barrier(clients_comm);
+
+		// Because of the validation we may have, we need to reset the buffer to avoid possible errors
+		buffer = (char*) calloc(MAXIMUM_REQUEST_SIZE, sizeof(char));
 
 		/*
 		 * OPEN ------------------------------------------------------------------------------------
@@ -1269,6 +1295,25 @@ int main(int argc, char *argv[]) {
 
 			// Discover the rank that sent us the message
 			log_debug("received READ data from %d with length %d", status.MPI_SOURCE, size);
+
+			int errors = 0;
+
+			// Check if the data that we read is the data we wrote
+			if (simulation_validation) {
+				for (b = 0; b < r->size; b++) {
+					if (buffer[b] != 'a' + world_rank) {
+						printf("rank = %03d [%05ld] %c <> %c\n", world_rank, b, buffer[b], 'a' + world_rank);
+
+						errors++;
+					}
+				}
+
+				if (errors) {
+					log_error("data validation sent from rank %d is INCORRECT!", status.MPI_SOURCE);
+				}
+
+				assert(errors == 0);
+			}
 		}
 
 		clock_gettime(CLOCK_MONOTONIC, &end_time);
@@ -1344,16 +1389,16 @@ int main(int argc, char *argv[]) {
 			MPI_File_write(fh, &map, strlen(map), MPI_CHAR, &s);
 
 			// Free the statistics related to each rank
-			safe_free(rank_elapsed);
+			safe_free(rank_elapsed, "main_elapsed:002");
 		}
 
 		MPI_Barrier(clients_comm);
 
 		// Free the request
-		safe_free(r);
+		safe_free(r, "main:001");
 
 		if (is_forwarding) {
-			safe_free(statistics);
+			safe_free(statistics, "main:002");
 		}
 
 		/*
@@ -1394,7 +1439,7 @@ int main(int argc, char *argv[]) {
 	MPI_Type_free(&request_datatype);
 
 	// Free the buffer
-	safe_free(buffer);
+	safe_free(buffer, "main:003");
 
 	if (world_rank == 0) {
 		log_info("I/O Forwarding Emulation [COMPLETE]");
