@@ -318,7 +318,10 @@ void *server_listen(void *p) {
 		if (r->operation == READ) {
 			// Allocate the buffer
 			r->buffer = malloc(r->size * sizeof(char));
-
+			printf("before send id... %d, %lld [%ld]\n", world_rank, r->id, r->offset);
+			// Send ACK to receive the buffer with the request ID
+			MPI_Send(&r->id, 1, MPI_INT, r->rank, TAG_ACK, MPI_COMM_WORLD); 
+			printf("after send id...\n");
 			// Include the request into the hash list
 			pthread_mutex_lock(&requests_lock);
 			HASH_ADD_INT(requests, id, r);
@@ -511,9 +514,10 @@ void *server_dispatcher(void *p) {
 		log_debug("[P-%ld] Request ID: %u", pthread_self(), request_id);
 		#endif
 
-		// Get the request from the hash
+		// Get the request from the hash and remove it from there
 		pthread_mutex_lock(&requests_lock);
 		HASH_FIND_INT(requests, &request_id, r);
+		HASH_DEL(requests, r);
 		pthread_mutex_unlock(&requests_lock);
 
 		if (r == NULL) {
@@ -522,10 +526,11 @@ void *server_dispatcher(void *p) {
 			return NULL;
 		}			
 
-		log_debug("[XX][%d] %d %d %ld %ld", 0, r->operation, r->file_handle, r->offset, r->size);
+		log_info("[XX][%d] %d %d %ld %ld", r->id, r->operation, r->file_handle, r->offset, r->size);
 
 		// Issue the request to the filesystem
 		if (r->operation == WRITE) {
+			// TODO >> check if we need to lock the filehandle to issue the seek and write/read operations
 			// Seek the offset
 			if (lseek(r->file_handle, r->offset, SEEK_SET) == -1) {
 				MPI_Abort(MPI_COMM_WORLD, ERROR_SEEK_FAILED);
@@ -534,7 +539,8 @@ void *server_dispatcher(void *p) {
 			// Write the file
 			int rc = write(r->file_handle, r->buffer, r->size);
 			
-			if (rc == -1) {
+			// Check the number of bytes that were actually writen
+			if (rc != r->size) {
 				MPI_Abort(MPI_COMM_WORLD, ERROR_WRITE_FAILED);
 			}
 
@@ -554,11 +560,14 @@ void *server_dispatcher(void *p) {
 			// Read the file
 			int rc = read(r->file_handle, r->buffer, r->size);
 			
-			if (rc == -1) {
+			// Check the number of bytes that were actually read
+			if (rc != r->size) {
 				MPI_Abort(MPI_COMM_WORLD, ERROR_READ_FAILED);
 			}
 
-			MPI_Send(r->buffer, r->size, MPI_CHAR, r->rank, TAG_BUFFER, MPI_COMM_WORLD);
+			printf("READ id %d: [] %c\n", r->id, r->buffer[0]);
+
+			MPI_Send(r->buffer, r->size, MPI_CHAR, r->rank, r->id, MPI_COMM_WORLD);
 
 			// Release the AGIOS request
 			sprintf(fh_str, "%015d", r->file_handle);
@@ -566,11 +575,6 @@ void *server_dispatcher(void *p) {
 			agios_release_request(fh_str, r->operation, r->size, r->offset, 0, r->size); // 0 is a sub-request
 		}
 		
-		// Remove the request from the hash
-		pthread_mutex_lock(&requests_lock);
-		HASH_DEL(requests, r);
-		pthread_mutex_unlock(&requests_lock);
-
 		// We need to signal the processing thread to proceed and check for shutdown
 		pthread_cond_signal(&ready_queue_signal);
 
@@ -1026,7 +1030,7 @@ int main(int argc, char *argv[]) {
 
 		// Fill the buffer with fake data to be written
 		for (b = 0; b < simulation_request_size; b++) {
-			buffer[b] = 'a' + world_rank;
+			buffer[b] = 'a' + client_rank;
 		}
 
 		if (client_rank == 0) {
@@ -1035,7 +1039,7 @@ int main(int argc, char *argv[]) {
 			sprintf(map, "---------------------------\n I/O Forwarding Simulation\n---------------------------\n");
 			MPI_File_write(fh, &map, strlen(map), MPI_CHAR, &s);
 
-			sprintf(map, " forwarders: %13d\n clients:    %13d\n layout: %13d\n spatiality: %13d\n request:    %13ld\n total:      %13ld\n---------------------------\n\n", world_size - client_size, client_size, simulation_files, simulation_spatiality, simulation_request_size, simulation_total_size);
+			sprintf(map, " forwarders: %13d\n clients:    %13d\n layout:    %13d\n spatiality: %13d\n request:    %13ld\n total:      %13ld\n---------------------------\n\n", world_size - client_size, client_size, simulation_files, simulation_spatiality, simulation_request_size, simulation_total_size);
 			MPI_File_write(fh, &map, strlen(map), MPI_CHAR, &s);
 		}
 
@@ -1055,7 +1059,7 @@ int main(int argc, char *argv[]) {
 		 */
 
 		// Create the request
-		r = (struct request *) malloc(sizeof(struct request));
+		/*r = (struct request *) malloc(sizeof(struct request));
 
 		r->operation = OPEN;
 		strcpy(r->file_name, simulation_path);
@@ -1081,7 +1085,7 @@ int main(int argc, char *argv[]) {
 		 * -----------------------------------------------------------------------------------------
 		 */
 
-		sprintf(map, " WRITE\n---------------------------\n");
+		/*sprintf(map, " WRITE\n---------------------------\n");
 		MPI_File_write(fh, &map, strlen(map), MPI_CHAR, &s);
 
 		clock_gettime(CLOCK_MONOTONIC, &start_time);
@@ -1147,7 +1151,7 @@ int main(int argc, char *argv[]) {
 		 * -----------------------------------------------------------------------------------------
 		 */
 
-		if (client_rank == 0) {
+		/*if (client_rank == 0) {
 			rank_elapsed = malloc(sizeof(double) * client_size);
 		}
 
@@ -1194,7 +1198,7 @@ int main(int argc, char *argv[]) {
 		 */
 
 		// Create the request
-		r = (struct request *) malloc(sizeof(struct request));
+		/*r = (struct request *) malloc(sizeof(struct request));
 
 		r->operation = CLOSE;
 		strcpy(r->file_name, simulation_path);
@@ -1275,15 +1279,18 @@ int main(int argc, char *argv[]) {
 
 			r->size = simulation_request_size;
 
-			log_debug("[OP][%d] %d %d %ld %ld", world_rank, r->operation, r->file_handle, r->offset, r->size);
+			log_info("[OP][%d] %d %d %ld %ld", world_rank, r->operation, r->file_handle, r->offset, r->size);
 
 			// Issue the fake READ operation, that should wait for it to complete
 			MPI_Send(r, 1, request_datatype, my_forwarding_server, TAG_REQUEST, MPI_COMM_WORLD); 
 
-			log_debug("waiting for the answer to come...");
+			// We need to wait for the ACK so that the server is ready to send our buffer and the request ID
+			MPI_Recv(&request_id, 1, MPI_INT, my_forwarding_server, TAG_ACK, MPI_COMM_WORLD, &status);
+
+			log_debug("ACK received [id=%d], receiving buffer...", request_id);
 
 			// We need to wait for the READ request to return before issuing another request
-			MPI_Recv(buffer, r->size, MPI_CHAR, my_forwarding_server, TAG_BUFFER, MPI_COMM_WORLD, &status);
+			MPI_Recv(buffer, r->size, MPI_CHAR, my_forwarding_server, request_id, MPI_COMM_WORLD, &status);
 
 			int size = 0;
 
@@ -1301,8 +1308,8 @@ int main(int argc, char *argv[]) {
 			// Check if the data that we read is the data we wrote
 			if (simulation_validation) {
 				for (b = 0; b < r->size; b++) {
-					if (buffer[b] != 'a' + world_rank) {
-						printf("rank = %03d [%05ld] %c <> %c\n", world_rank, b, buffer[b], 'a' + world_rank);
+					if (buffer[b] != 'a' + client_rank) {
+						printf("rank = %03d [%05ld] %c <> %c (%lld)\n", client_rank, b, buffer[b], 'a' + client_rank, request_id);
 
 						errors++;
 					}
