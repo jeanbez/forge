@@ -461,6 +461,8 @@ void *server_dispatcher(void *p) {
     struct forwarding_request *r;
     struct ready_request *ready_r;
 
+    int rc, remaining, complete;
+
     char fh_str[255];
 
     log_debug("DISPATCHER THREAD %ld", pthread_self());
@@ -528,14 +530,34 @@ void *server_dispatcher(void *p) {
 
         // Issue the request to the filesystem
         if (r->operation == WRITE) {
+            remaining = r->size;
+            complete = r->offset;
+
+            // To handle incomplete calls
+            // https://stackoverflow.com/questions/32683086/handling-incomplete-write-calls
+            // https://www.systutorials.com/docs/linux/man/3p-pwrite/
+            while (remaining > 0) {
+                do {
+                    rc = pwrite(r->file_handle, r->buffer + complete, remaining, complete);
+
+                } while ((rc < 0) && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK));
+
+                if (rc < 0) {
+                    MPI_Abort(MPI_COMM_WORLD, ERROR_WRITE_FAILED);
+                }
+
+                remaining -= rc;
+                complete += rc;
+            }
+
             // For multi-threaded scenarios pread() and pwrite()  don't affect the file offset 
             // (so multiple threads can read from the same file descriptor without any locking and without race conditions between lseek() and read())
-            int rc = pwrite(r->file_handle, r->buffer, r->size, r->offset);
-            
+            // int rc = pwrite(r->file_handle, r->buffer, r->size, r->offset);
+            // 
             // Check the number of bytes that were actually writen
-            if (rc != r->size) {
-                MPI_Abort(MPI_COMM_WORLD, ERROR_WRITE_FAILED);
-            }
+            //if (rc != r->size) {
+            //    MPI_Abort(MPI_COMM_WORLD, ERROR_WRITE_FAILED);
+            //}
 
             // Send ACK to the client to indicate the operation was completed
             MPI_Send(&ack, 1, MPI_INT, r->rank, TAG_ACK, MPI_COMM_WORLD); 
@@ -545,14 +567,33 @@ void *server_dispatcher(void *p) {
 
             agios_release_request(fh_str, r->operation, r->size, r->offset, 0, r->size); // 0 is a sub-request
         } else if (r->operation == READ) {
+            remaining = r->size;
+            complete = r->offset;
+
+            // To handle incomplete calls
+            // https://stackoverflow.com/questions/32683086/handling-incomplete-write-calls
+            while (remaining > 0) {
+                do {
+                    rc = pread(r->file_handle, r->buffer + complete, remaining, complete);
+
+                } while ((rc < 0) && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK));
+
+                if (rc < 0) {
+                    MPI_Abort(MPI_COMM_WORLD, ERROR_WRITE_FAILED);
+                }
+
+                remaining -= rc;
+                complete += rc;
+            }
+
             // For multi-threaded scenarios pread() and pwrite()  don't affect the file offset 
             // (so multiple threads can read from the same file descriptor without any locking and without race conditions between lseek() and read())
-            int rc = pread(r->file_handle, r->buffer, r->size, r->offset);
-            
+            //int rc = pread(r->file_handle, r->buffer, r->size, r->offset);
+            //
             // Check the number of bytes that were actually read
-            if (rc != r->size) {
-                MPI_Abort(MPI_COMM_WORLD, ERROR_READ_FAILED);
-            }
+            //if (rc != r->size) {
+            //    MPI_Abort(MPI_COMM_WORLD, ERROR_READ_FAILED);
+            //}
 
             // printf("READ id %ld: [] %c\n", r->id, r->buffer[0]);
 
