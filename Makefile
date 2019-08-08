@@ -1,6 +1,6 @@
 CC=mpicc
-CFLAGS=-c -Wall -g -D_GNU_SOURCE #-DDEBUG
-LDFLAGS=-lagios -lgsl -lgslcblas -lm -L. -ljsmn
+CFLAGS=-c -Wall -g #-DDEBUG
+LDFLAGS=-lagios -lgsl -lgslcblas -lm -L. -ljsmn -lpthread
 SOURCES=main.c jsmn.c log.c fwd_list.c
 OBJECTS=$(SOURCES:.c=.o)
 EXECUTABLE=fwd-sim

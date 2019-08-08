@@ -161,9 +161,9 @@ void *server_listen(void *p) {
     MPI_Datatype type[5] = {MPI_CHAR, MPI_INT, MPI_INT, MPI_UNSIGNED_LONG, MPI_UNSIGNED_LONG};
     MPI_Aint displacement[5];
 
-    MPI_Request request;
-
     struct request req;
+
+    MPI_Request request;
 
     // Compute displacements of structure components
     MPI_Get_address(&req, displacement);
@@ -200,6 +200,8 @@ void *server_listen(void *p) {
             // If all the nodes requested a shutdown, we can proceed
             if (shutdown == (world_size - simulation_forwarders) / simulation_forwarders) {
                 log_debug("SHUTDOWN: listen %d thread %ld", world_rank, pthread_self());
+
+                MPI_Type_free(&request_datatype);
 
                 // We need to signal the processing thread to proceed and check for shutdown
                 pthread_mutex_lock(&ready_queue_mutex);
@@ -248,12 +250,12 @@ void *server_listen(void *p) {
         r->file_handle = req.file_handle;
         r->offset = req.offset;
         r->size = req.size;
-
+ 
         log_debug("OPERATION: %d", r->operation);
 
         // We do not schedule OPEN and CLOSE requests so we can process them now
         if (r->operation == OPEN) {
-            struct opened_handles *h;
+            struct opened_handles *h = NULL;
 
             // Check if the file is already opened
             pthread_mutex_lock(&handles_lock);
@@ -309,6 +311,9 @@ void *server_listen(void *p) {
             statistics->open += 1;
             pthread_mutex_unlock(&statistics_lock);
 
+            // We can free the request as it has been processed
+            safe_free(r, "server_listen::r");
+
             continue;
         }
 
@@ -316,18 +321,26 @@ void *server_listen(void *p) {
         if (r->operation == READ) {
             // Allocate the buffer
             r->buffer = malloc(r->size * sizeof(char));
+            
             //printf("before send id... %d, %ld [%ld]\n", world_rank, r->id, r->offset);
             // Send ACK to receive the buffer with the request ID
             //MPI_Send(&r->id, 1, MPI_INT, r->rank, TAG_ACK, MPI_COMM_WORLD); 
             //printf("after send id...\n");
+
             // Include the request into the hash list
             pthread_mutex_lock(&requests_lock);
             HASH_ADD_INT(requests, id, r);
             pthread_mutex_unlock(&requests_lock);
 
-            log_debug("add (handle: %d, operation: %d, offset: %ld, size: %ld, id: %ld)", r->file_handle, r->operation, r->offset, r->size, r->id);
+            log_debug("add (handle: %d, operation: %d, offset: %ld, size: %ld, rank: %d, id: %ld)", r->file_handle, r->operation, r->offset, r->size, r->rank, r->id);
 
             sprintf(fh_str, "%015d", r->file_handle);
+
+            // Update the statistics
+            pthread_mutex_lock(&statistics_lock);
+            statistics->read += 1;
+            statistics->read_size += r->size;
+            pthread_mutex_unlock(&statistics_lock);
 
             // Send the request to AGIOS
             if (agios_add_request(fh_str, r->operation, r->offset, r->size, (void *) r->id, &agios_client, 0)) {
@@ -336,12 +349,6 @@ void *server_listen(void *p) {
 
                 MPI_Abort(MPI_COMM_WORLD, ERROR_AGIOS_REQUEST);
             }
-
-            // Update the statistics
-            pthread_mutex_lock(&statistics_lock);
-            statistics->read += 1;
-            statistics->read_size += r->size;
-            pthread_mutex_unlock(&statistics_lock);
 
             continue;
         } 
@@ -378,6 +385,12 @@ void *server_listen(void *p) {
 
             sprintf(fh_str, "%015d", r->file_handle);
 
+            // Update the statistics
+            pthread_mutex_lock(&statistics_lock);
+            statistics->write += 1;
+            statistics->write_size += r->size;
+            pthread_mutex_unlock(&statistics_lock);
+
             // Send the request to AGIOS
             if (agios_add_request(fh_str, r->operation, r->offset, r->size, (void *) r->id, &agios_client, 0)) {
                 // Failed to sent to AGIOS, we should remove the request from the list
@@ -386,18 +399,12 @@ void *server_listen(void *p) {
                 MPI_Abort(MPI_COMM_WORLD, ERROR_AGIOS_REQUEST);
             }
 
-            // Update the statistics
-            pthread_mutex_lock(&statistics_lock);
-            statistics->write += 1;
-            statistics->write_size += r->size;
-            pthread_mutex_unlock(&statistics_lock);
-
             continue;
         }
 
         // We do not schedule OPEN and CLOSE requests so we can process them now
         if (r->operation == CLOSE) {
-            struct opened_handles *h;
+            struct opened_handles *h = NULL;
 
             // Check if the file is already opened
             pthread_mutex_lock(&handles_lock);
@@ -419,7 +426,7 @@ void *server_listen(void *p) {
                     // Remove the request from the hash
                     HASH_DEL(opened_files, h);
 
-                    safe_free(h, "server_listen::001");
+                    safe_free(h, "server_listen::h");
                 } else {
                     struct opened_handles *tmp = (struct opened_handles *) malloc(sizeof(struct opened_handles));
 
@@ -444,8 +451,13 @@ void *server_listen(void *p) {
             statistics->close += 1;
             pthread_mutex_unlock(&statistics_lock);
 
+            // We can free the request as it has been processed
+            safe_free(r, "server_listen::r");
+
             continue;
         }
+
+        safe_free(r, "server_listen::r");
         
         // Handle unknown request type
         MPI_Abort(MPI_COMM_WORLD, ERROR_UNKNOWN_REQUEST_TYPE);
@@ -455,15 +467,18 @@ void *server_listen(void *p) {
 }
 
 void *server_dispatcher(void *p) {
-    int request_id;
+    int request_id, next_request_id;
 
     int ack = 1;
     struct forwarding_request *r;
-    struct ready_request *ready_r;
+    struct forwarding_request *next_r;
 
-    int rc, remaining, complete;
+    struct ready_request *ready_r;
+    struct ready_request *next_ready_r;
 
     char fh_str[255];
+
+    char *aggregated_buffer;
 
     log_debug("DISPATCHER THREAD %ld", pthread_self());
 
@@ -517,7 +532,12 @@ void *server_dispatcher(void *p) {
         // Get the request from the hash and remove it from there
         pthread_mutex_lock(&requests_lock);
         HASH_FIND_INT(requests, &request_id, r);
-        HASH_DEL(requests, r);
+
+        if (r == NULL) {
+            log_error("unable to find the request");
+        }
+
+        //HASH_DEL(requests, r);
         pthread_mutex_unlock(&requests_lock);
 
         if (r == NULL) {
@@ -530,34 +550,17 @@ void *server_dispatcher(void *p) {
 
         // Issue the request to the filesystem
         if (r->operation == WRITE) {
-            remaining = r->size;
-            complete = r->offset;
+            pthread_mutex_lock(&requests_lock);
+            HASH_DEL(requests, r);
+            pthread_mutex_unlock(&requests_lock);
 
-            // To handle incomplete calls
+            int rc = pwrite(r->file_handle, r->buffer, r->size, r->offset);
             // https://stackoverflow.com/questions/32683086/handling-incomplete-write-calls
             // https://www.systutorials.com/docs/linux/man/3p-pwrite/
-            while (remaining > 0) {
-                do {
-                    rc = pwrite(r->file_handle, r->buffer + complete, remaining, complete);
 
-                } while ((rc < 0) && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK));
-
-                if (rc < 0) {
-                    MPI_Abort(MPI_COMM_WORLD, ERROR_WRITE_FAILED);
-                }
-
-                remaining -= rc;
-                complete += rc;
+            if (rc != r->size) {
+                MPI_Abort(MPI_COMM_WORLD, ERROR_WRITE_FAILED);
             }
-
-            // For multi-threaded scenarios pread() and pwrite()  don't affect the file offset 
-            // (so multiple threads can read from the same file descriptor without any locking and without race conditions between lseek() and read())
-            // int rc = pwrite(r->file_handle, r->buffer, r->size, r->offset);
-            // 
-            // Check the number of bytes that were actually writen
-            //if (rc != r->size) {
-            //    MPI_Abort(MPI_COMM_WORLD, ERROR_WRITE_FAILED);
-            //}
 
             // Send ACK to the client to indicate the operation was completed
             MPI_Send(&ack, 1, MPI_INT, r->rank, TAG_ACK, MPI_COMM_WORLD); 
@@ -567,33 +570,107 @@ void *server_dispatcher(void *p) {
 
             agios_release_request(fh_str, r->operation, r->size, r->offset, 0, r->size); // 0 is a sub-request
         } else if (r->operation == READ) {
-            remaining = r->size;
-            complete = r->offset;
+            // We need to check if we have contiguous request to the same file handle, to aggregate them
+            int aggregated_count = 0;
+            unsigned long int aggregated[32];
 
-            // To handle incomplete calls
-            // https://stackoverflow.com/questions/32683086/handling-incomplete-write-calls
-            while (remaining > 0) {
-                do {
-                    rc = pread(r->file_handle, r->buffer + complete, remaining, complete);
+            // Set the original request into the aggregated
+            aggregated[aggregated_count++] = r->id;
+            
+            unsigned long int aggregated_size = r->size;
 
-                } while ((rc < 0) && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK));
+            // Start by locking the queue mutex
+            pthread_mutex_lock(&ready_queue_mutex);
 
-                if (rc < 0) {
-                    MPI_Abort(MPI_COMM_WORLD, ERROR_WRITE_FAILED);
+            while (!fwd_list_empty(&ready_queue) && aggregated_count < 32) {
+                next_ready_r = fwd_list_entry(ready_queue.next, struct ready_request, list);
+
+                // Fetch the next request ID
+                next_request_id = next_ready_r->id;
+
+                // Get the request
+                pthread_mutex_lock(&requests_lock);
+                HASH_FIND_INT(requests, &next_request_id, next_r);
+                
+                if (next_r == NULL) {
+                    log_error("unable to find the request");
                 }
 
-                remaining -= rc;
-                complete += rc;
+                pthread_mutex_unlock(&requests_lock);
+
+                // Check if it is for the same filehandle and contiguous to the previous one
+                if (r->file_handle == next_r->file_handle && r->offset + aggregated_size == next_r->offset) {
+                    log_debug("---> AGGREGATE (%ld + %ld)!", r->id, next_r->id);
+
+                    // Determine the aggregated request size
+                    aggregated_size += next_r->size;
+                    
+                    // Remove the request form the list
+                    fwd_list_del(&next_ready_r->list);
+
+                    safe_free(next_ready_r, "server_dispatcher::005");
+
+                    // Make sure we know which requests we aggregated so that we can reply to their clients
+                    aggregated[aggregated_count++] = next_request_id;
+                } else {
+                    // Requests are not contiguous to the same filehandle
+                    break;
+                }    
             }
 
-            // For multi-threaded scenarios pread() and pwrite()  don't affect the file offset 
-            // (so multiple threads can read from the same file descriptor without any locking and without race conditions between lseek() and read())
-            //int rc = pread(r->file_handle, r->buffer, r->size, r->offset);
-            //
-            // Check the number of bytes that were actually read
-            //if (rc != r->size) {
-            //    MPI_Abort(MPI_COMM_WORLD, ERROR_READ_FAILED);
-            //}
+            // Unlock the queue mutex
+            pthread_mutex_unlock(&ready_queue_mutex);
+            
+            aggregated_buffer = malloc(aggregated_size * sizeof(char));
+            
+            log_debug("aggregated_size = %ld", aggregated_size);
+
+            // Issue the large aggregated request
+            int rc = pread(r->file_handle, aggregated_buffer, aggregated_size, r->offset);
+
+            if (rc != aggregated_size) {
+                MPI_Abort(MPI_COMM_WORLD, ERROR_READ_FAILED);
+            }
+
+            unsigned long int offset = 0;
+
+            // Iterate over the aggregated request, and reply to their clients
+            for (int i = 0; i < aggregated_count; i++) {
+                // Get and remove the request from the list    
+                log_debug("aggregated[%d] = %ld", i, aggregated[i]);
+
+                pthread_mutex_lock(&requests_lock);
+                HASH_FIND_INT(requests, &aggregated[i], next_r);
+
+                if (next_r == NULL) {
+                    log_error("unable to find the request");
+                }
+                
+                HASH_DEL(requests, next_r);
+                pthread_mutex_unlock(&requests_lock);
+
+                log_debug("request = %ld, buffer = %s, offset = %ld, size = %ld", next_r->id, &aggregated_buffer[offset], offset, next_r->size);
+                
+                MPI_Send(&aggregated_buffer[offset], next_r->size, MPI_CHAR, next_r->rank, TAG_BUFFER, MPI_COMM_WORLD);
+
+                // Release the AGIOS request
+                sprintf(fh_str, "%015d", r->file_handle);
+
+                agios_release_request(fh_str, r->operation, r->size, r->offset, 0, r->size); // 0 is a sub-request
+
+                // Update to the next offset
+                offset += next_r->size;
+            }
+
+            // Free the buffer
+            safe_free(aggregated_buffer, "server_dispatcher::aggregated_buffer");
+        
+            /*int rc = pread(r->file_handle, r->buffer, r->size, r->offset);
+            // https://stackoverflow.com/questions/32683086/handling-incomplete-write-calls
+
+            if (rc != r->size) {
+                MPI_Abort(MPI_COMM_WORLD, ERROR_READ_FAILED);
+            }
 
             // printf("READ id %ld: [] %c\n", r->id, r->buffer[0]);
 
@@ -603,16 +680,15 @@ void *server_dispatcher(void *p) {
             sprintf(fh_str, "%015d", r->file_handle);
 
             agios_release_request(fh_str, r->operation, r->size, r->offset, 0, r->size); // 0 is a sub-request
+            */
         }
         
         // We need to signal the processing thread to proceed and check for shutdown
         pthread_cond_signal(&ready_queue_signal);
 
-        // Free the buffer and the request
-        if (r->operation != WRITE || r->operation == READ) {
-            safe_free(r->buffer, "server_dispatcher::002");
-        }
-        safe_free(r, "server_dispatcher::003");
+        // Free the request   
+        safe_free(r->buffer, "server_dispatcher::r->buffer");
+        safe_free(r, "server_dispatcher::r");
     }
 
     return NULL;
@@ -667,8 +743,10 @@ int main(int argc, char *argv[]) {
         MPI_Abort(MPI_COMM_WORLD, ERROR_MEMORY_ALLOCATION);
     }
 
+    provided = MPI_THREAD_SINGLE;
+
     // Start up MPI
-    MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE , &provided);
+    MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
     
         // Make sure MPI has thread support
     if (provided != MPI_THREAD_MULTIPLE) {
@@ -742,7 +820,9 @@ int main(int argc, char *argv[]) {
     }
 
     // Simulation configuration
-    char *simulation_path;
+    char simulation_path[255];
+
+    char *simulation_base_path;
     char *simulation_files_name;
     char *simulation_spatiality_name;
 
@@ -764,22 +844,33 @@ int main(int argc, char *argv[]) {
 
     unsigned long b;
 
+    char *parameter;
+
     // Loop over all keys of the root object
     for (i = 1; i < ret; i++) {
         if (jsoneq(configuration, &tokens[i], "forwarders") == 0) {
-            simulation_forwarders = atoi(strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start));
+            parameter = strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start);
+            simulation_forwarders = atoi(parameter);
+
+            safe_free(parameter, "main::parameter");
 
             i++;
         } else if (jsoneq(configuration, &tokens[i], "listeners") == 0) {
-            simulation_listeners = atoi(strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start));
+            parameter = strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start);
+            simulation_listeners = atoi(parameter);
+
+            safe_free(parameter, "main::parameter");
 
             i++;
         } else if (jsoneq(configuration, &tokens[i], "dispatchers") == 0) {
-            simulation_dispatchers = atoi(strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start));
+            parameter = strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start);
+            simulation_dispatchers = atoi(parameter);
+
+            safe_free(parameter, "main::parameter");
 
             i++;
         } else if (jsoneq(configuration, &tokens[i], "path") == 0) {
-            simulation_path = strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start);
+            simulation_base_path = strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start);
 
             i++;
         } else if (jsoneq(configuration, &tokens[i], "number_of_files") == 0) {
@@ -811,15 +902,24 @@ int main(int argc, char *argv[]) {
                 MPI_Abort(MPI_COMM_WORLD, ERROR_INVALID_PATTERN);
             }
         } else if (jsoneq(configuration, &tokens[i], "total_size") == 0) {
-            simulation_total_size = strtoul(strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start), NULL, 10);
+            parameter = strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start);
+            simulation_total_size = strtoul(parameter, NULL, 10);
+
+            safe_free(parameter, "main::parameter");
 
             i++;
         } else if (jsoneq(configuration, &tokens[i], "request_size") == 0) {
-            simulation_request_size = strtoul(strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start), NULL, 10);
+            parameter = strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start);
+            simulation_request_size = strtoul(parameter, NULL, 10);
+
+            safe_free(parameter, "main::parameter");
 
             i++;
         } else if (jsoneq(configuration, &tokens[i], "validation") == 0) {
-            simulation_validation = atoi(strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start));
+            parameter = strndup(configuration + tokens[i+1].start, tokens[i+1].end - tokens[i+1].start);
+            simulation_validation = atoi(parameter);
+
+            safe_free(parameter, "main::parameter");
 
             i++;
 
@@ -832,7 +932,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    safe_free(configuration, "main_configuration::001");
+    safe_free(configuration, "main::configuration");
 
     // Verify for an invalid pattern: individual files with 1D strided accesses
     if (simulation_files == INDIVIDUAL && simulation_spatiality == STRIDED) {
@@ -938,24 +1038,41 @@ int main(int argc, char *argv[]) {
 
     MPI_Barrier(MPI_COMM_WORLD);
 
-    MPI_File fh;
+    MPI_File fh = NULL;
     MPI_Status s;
 
     sprintf(simulation_map_file, "%s.map", base_file);
     sprintf(simulation_time_file, "%s.time", base_file);
-    sprintf(simulation_stats_file, "%s.stats", base_file);
-
-    // Snapshot of the simulation configuration
-    MPI_File_open(MPI_COMM_WORLD, simulation_map_file, MPI_MODE_CREATE|MPI_MODE_WRONLY, MPI_INFO_NULL, &fh);
+    sprintf(simulation_stats_file, "%s.%d.stats", base_file, world_rank);
 
     char map[1024];
-    sprintf(map, "rank %d: %s\n", world_rank, (is_forwarding ? "server" : "client"));
+    float *forwading_map = NULL;
 
-    // Write the subarray
-    MPI_File_write_ordered(fh, &map, strlen(map), MPI_CHAR, &s);
+    if (world_rank == 0) {
+        forwading_map = malloc(sizeof(float) * world_size);
+    }
+    
+    MPI_Gather(&is_forwarding, 1, MPI_INT, forwading_map, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-    // Close the file
-    MPI_File_close(&fh);
+    if (world_rank == 0) {
+        // Snapshot of the simulation configuration
+        MPI_File_open(MPI_COMM_SELF, simulation_map_file, MPI_MODE_CREATE|MPI_MODE_WRONLY, MPI_INFO_NULL, &fh);
+        
+        for (i = 0; i < world_size; i++) {
+            sprintf(map, "rank %d: %s\n", i, (forwading_map[i] ? "server" : "client"));
+
+            // Write the subarray
+            MPI_File_write(fh, &map, strlen(map), MPI_CHAR, &s);
+        }
+
+        // Close the file
+        MPI_File_close(&fh);
+    }
+
+    if (world_rank == 0) {
+        // Free the map structure
+        free(forwading_map);
+    }
 
     MPI_Barrier(MPI_COMM_WORLD);
 
@@ -1030,15 +1147,23 @@ int main(int argc, char *argv[]) {
         // Stops the AGIOS scheduling library
         stop_AGIOS();
 
-        // Write the forwarding statistics to file
-        MPI_File_open(forwarding_comm, simulation_stats_file, MPI_MODE_CREATE|MPI_MODE_WRONLY, MPI_INFO_NULL, &fh);
+        MPI_File_open(MPI_COMM_SELF, simulation_stats_file, MPI_MODE_CREATE|MPI_MODE_WRONLY, MPI_INFO_NULL, &fh);
 
         char stats[1048576];
-
-        sprintf(stats, "forwarder: %d\nopen: %ld\nread: %ld\nwrite: %ld\nclose: %ld\nread_size: %ld\nwrite_size: %ld\n\n", forwarding_rank, statistics->open, statistics->read, statistics->write, statistics->close, statistics->read_size, statistics->write_size);
+            
+        // Write the statistics of each forwarding server
+        sprintf(stats, "forwarder: %d\nopen: %ld\nread: %ld\nwrite: %ld\nclose: %ld\nread_size: %ld\nwrite_size: %ld\n\n",
+            forwarding_rank,
+            statistics->open,
+            statistics->read,
+            statistics->write,
+            statistics->close,
+            statistics->read_size,
+            statistics->write_size
+        );
 
         // Write the subarray
-        MPI_File_write_ordered(fh, &stats, strlen(stats), MPI_CHAR, &s);
+        MPI_File_write(fh, &stats, strlen(stats), MPI_CHAR, &s);
 
         // Close the file
         MPI_File_close(&fh);
@@ -1079,7 +1204,9 @@ int main(int argc, char *argv[]) {
         // Handle individual files by renaming the output once
         if (simulation_files == INDIVIDUAL) {
             // Each process should open its file
-            sprintf(simulation_path, "%s-%03d", simulation_path, client_rank);
+            sprintf(simulation_path, "%s-%03d", simulation_base_path, client_rank);
+        } else {
+            sprintf(simulation_path, "%s", simulation_base_path);
         }
 
         /*
@@ -1106,6 +1233,8 @@ int main(int argc, char *argv[]) {
         MPI_Recv(&forwarding_fh, 1, MPI_INT, my_forwarding_server, TAG_HANDLE, MPI_COMM_WORLD, &status);
 
         log_debug("HANDLE received [id=%d] %d", request_id, forwarding_fh);
+
+        free(r);
 
         MPI_Barrier(clients_comm);
 
@@ -1166,6 +1295,8 @@ int main(int argc, char *argv[]) {
 
             // We need to wait for the ACK so that the server has finished to process our request
             MPI_Recv(&ack, 1, MPI_INT, my_forwarding_server, TAG_ACK, MPI_COMM_WORLD, &status);
+
+            free(r);
         }
 
         clock_gettime(CLOCK_MONOTONIC, &end_time);
@@ -1244,7 +1375,11 @@ int main(int argc, char *argv[]) {
         // We need to wait for the file handle to continue
         MPI_Recv(&forwarding_fh, 1, MPI_INT, my_forwarding_server, TAG_ACK, MPI_COMM_WORLD, &status);
 
+        free(r);
+
         MPI_Barrier(clients_comm);
+
+        safe_free(buffer, "main::buffer");
 
         // Because of the validation we may have, we need to reset the buffer to avoid possible errors
         buffer = (char*) calloc(MAXIMUM_REQUEST_SIZE, sizeof(char));
@@ -1273,6 +1408,8 @@ int main(int argc, char *argv[]) {
         MPI_Recv(&forwarding_fh, 1, MPI_INT, my_forwarding_server, TAG_HANDLE, MPI_COMM_WORLD, &status);
 
         log_debug("HANDLE received [id=%d] %d", request_id, forwarding_fh);
+
+        free(r);
 
         MPI_Barrier(clients_comm);
         
@@ -1339,7 +1476,7 @@ int main(int argc, char *argv[]) {
             if (simulation_validation) {
                 for (b = 0; b < r->size; b++) {
                     if (buffer[b] != 'a' + client_rank) {
-                        log_trace("rank = %03d [%05ld] %c <> %c (%d)\n", client_rank, b, buffer[b], 'a' + client_rank, request_id);
+                        log_debug("rank = %03d [%05ld] %c <> %c (%d)", client_rank, b, buffer[b], 'a' + client_rank, request_id);
 
                         errors++;
                     }
@@ -1351,6 +1488,8 @@ int main(int argc, char *argv[]) {
 
                 assert(errors == 0);
             }
+
+            free(r);
         }
 
         clock_gettime(CLOCK_MONOTONIC, &end_time);
@@ -1476,7 +1615,11 @@ int main(int argc, char *argv[]) {
     MPI_Type_free(&request_datatype);
 
     // Free the buffer
-    safe_free(buffer, "main:003");
+    safe_free(buffer, "main:buffer");
+
+    safe_free(simulation_base_path, "main:simulation_path");
+    safe_free(simulation_files_name, "main:simulation_files_name");
+    safe_free(simulation_spatiality_name, "main:simulation_spatiality_name");
 
     if (world_rank == 0) {
         log_info("I/O Forwarding Emulation [COMPLETE]");

@@ -1,11 +1,11 @@
 {
-	"forwarders": "2",
+	"forwarders": "1",
 	"listeners": "16",
 	"dispatchers": "16",
 	"path": "/tmp/test",
-	"number_of_files": "individual",
+	"number_of_files": "shared",
 	"spatiality": "contiguous",
-	"total_size": "200",
+	"total_size": "100",
 	"request_size": "10",
 	"validation": "1"
 }
