@@ -22,16 +22,7 @@ struct client agios_client;
 int global_id = 1000000;
 pthread_mutex_t global_id_lock;
 
-// TODO: we may need a lock here or replace this identifier by the ID of the request
 unsigned long generate_identifier() {
-    // Calculates the hash of this request
-    /*struct timespec ts;
-
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    unsigned long id = ts.tv_sec * 1000000L + ts.tv_nsec / 1000;
-
-    return id;*/
-
     pthread_mutex_lock(&global_id_lock);
     global_id++;
 
@@ -65,7 +56,7 @@ void safe_memory_free(void ** pointer_address, char *id) {
 
         *pointer_address = NULL;
     } else {
-        log_warn("double free or memory corruption was avoided");
+        log_warn("double free or memory corruption was avoided: %s", id);
     }
 }
 
@@ -133,7 +124,7 @@ void stop_AGIOS() {
 
 void start_AGIOS() {
     agios_client.process_request = (void *) callback;
-    //agios_client.process_requests = (void *) callback_aggregated;
+    agios_client.process_requests = (void *) callback_aggregated;
 
     // Check if AGIOS was successfully inicialized
     if (agios_init(&agios_client, AGIOS_CONFIGURATION, simulation_forwarders) != 0) {
@@ -190,8 +181,6 @@ void *server_listen(void *p) {
     // Listen for incoming requests
     while (1) {
         // Receive the message
-        // MPI_Recv(&req, 1, request_datatype, MPI_ANY_SOURCE, TAG_REQUEST, MPI_COMM_WORLD, &status);
-
         MPI_Irecv(&req, 1, request_datatype, MPI_ANY_SOURCE, TAG_REQUEST, MPI_COMM_WORLD, &request);
 
         MPI_Test(&request, &flag, &status);
@@ -200,8 +189,6 @@ void *server_listen(void *p) {
             // If all the nodes requested a shutdown, we can proceed
             if (shutdown == (world_size - simulation_forwarders) / simulation_forwarders) {
                 log_debug("SHUTDOWN: listen %d thread %ld", world_rank, pthread_self());
-
-                MPI_Type_free(&request_datatype);
 
                 // We need to signal the processing thread to proceed and check for shutdown
                 pthread_mutex_lock(&ready_queue_mutex);
@@ -320,12 +307,7 @@ void *server_listen(void *p) {
         // Process the READ request
         if (r->operation == READ) {
             // Allocate the buffer
-            r->buffer = malloc(r->size * sizeof(char));
-            
-            //printf("before send id... %d, %ld [%ld]\n", world_rank, r->id, r->offset);
-            // Send ACK to receive the buffer with the request ID
-            //MPI_Send(&r->id, 1, MPI_INT, r->rank, TAG_ACK, MPI_COMM_WORLD); 
-            //printf("after send id...\n");
+            r->buffer = calloc(r->size, sizeof(char));
 
             // Include the request into the hash list
             pthread_mutex_lock(&requests_lock);
@@ -356,7 +338,7 @@ void *server_listen(void *p) {
         // Process the WRITE request
         if (r->operation == WRITE) {
             // Make sure the buffer can store the message
-            r->buffer = malloc(r->size * sizeof(char));
+            r->buffer = calloc(r->size, sizeof(char));
 
             log_debug("waiting to receive the buffer [id=%ld]...", r->id);
 
@@ -426,6 +408,8 @@ void *server_listen(void *p) {
                     // Remove the request from the hash
                     HASH_DEL(opened_files, h);
 
+                    HASH_CLEAR(hh, opened_files);
+
                     safe_free(h, "server_listen::h");
                 } else {
                     struct opened_handles *tmp = (struct opened_handles *) malloc(sizeof(struct opened_handles));
@@ -475,6 +459,8 @@ void *server_dispatcher(void *p) {
 
     struct ready_request *ready_r;
     struct ready_request *next_ready_r;
+
+    struct ready_request *tmp;
 
     char fh_str[255];
 
@@ -569,6 +555,10 @@ void *server_dispatcher(void *p) {
             sprintf(fh_str, "%015d", r->file_handle);
 
             agios_release_request(fh_str, r->operation, r->size, r->offset, 0, r->size); // 0 is a sub-request
+
+            // Free the request   
+            safe_free(r->buffer, "server_dispatcher::r->buffer");
+            safe_free(r, "server_dispatcher::r");
         } else if (r->operation == READ) {
             // We need to check if we have contiguous request to the same file handle, to aggregate them
             int aggregated_count = 0;
@@ -582,8 +572,10 @@ void *server_dispatcher(void *p) {
             // Start by locking the queue mutex
             pthread_mutex_lock(&ready_queue_mutex);
 
-            while (!fwd_list_empty(&ready_queue) && aggregated_count < 32) {
-                next_ready_r = fwd_list_entry(ready_queue.next, struct ready_request, list);
+            fwd_list_for_each_entry_safe(next_ready_r, tmp, &ready_queue, list) {
+                if (aggregated_count >= 32) {
+                    break;
+                }
 
                 // Fetch the next request ID
                 next_request_id = next_ready_r->id;
@@ -598,12 +590,12 @@ void *server_dispatcher(void *p) {
 
                 pthread_mutex_unlock(&requests_lock);
 
-                // Check if it is for the same filehandle and contiguous to the previous one
-                if (r->file_handle == next_r->file_handle && r->offset + aggregated_size == next_r->offset) {
-                    log_debug("---> AGGREGATE (%ld + %ld)!", r->id, next_r->id);
-
+                // Check if it is for the same filehandle
+                if (r->file_handle == next_r->file_handle) {
                     // Determine the aggregated request size
                     aggregated_size += next_r->size;
+
+                    log_debug("---> AGGREGATE (%ld + %ld) size = %ld!", r->id, next_r->id, aggregated_size);
                     
                     // Remove the request form the list
                     fwd_list_del(&next_ready_r->list);
@@ -621,7 +613,7 @@ void *server_dispatcher(void *p) {
             // Unlock the queue mutex
             pthread_mutex_unlock(&ready_queue_mutex);
             
-            aggregated_buffer = malloc(aggregated_size * sizeof(char));
+            aggregated_buffer = calloc(aggregated_size, sizeof(char));
             
             log_debug("aggregated_size = %ld", aggregated_size);
 
@@ -649,46 +641,39 @@ void *server_dispatcher(void *p) {
                 HASH_DEL(requests, next_r);
                 pthread_mutex_unlock(&requests_lock);
 
-                log_debug("request = %ld, buffer = %s, offset = %ld, size = %ld", next_r->id, &aggregated_buffer[offset], offset, next_r->size);
+                #ifdef DEBUG
+                tmp = calloc(next_r->size, sizeof(char));
+
+                memcpy(tmp, &aggregated_buffer[offset], next_r->size * sizeof(char));
+
+                log_debug("request = %ld, buffer = %s, offset = %ld, size = %ld", next_r->id, tmp, offset, next_r->size);
+                #endif
                 
                 MPI_Send(&aggregated_buffer[offset], next_r->size, MPI_CHAR, next_r->rank, TAG_BUFFER, MPI_COMM_WORLD);
 
                 // Release the AGIOS request
-                sprintf(fh_str, "%015d", r->file_handle);
+                sprintf(fh_str, "%015d", next_r->file_handle);
 
-                agios_release_request(fh_str, r->operation, r->size, r->offset, 0, r->size); // 0 is a sub-request
+                agios_release_request(fh_str, next_r->operation, next_r->size, next_r->offset, 0, next_r->size); // 0 is a sub-request
 
                 // Update to the next offset
                 offset += next_r->size;
+
+                #ifdef DEBUG
+                safe_free(tmp, "server_dispatcher::tmp");
+                #endif
+
+                // Free the request
+                safe_free(next_r->buffer, "server_dispatcher::next_r->buffer");
+                safe_free(next_r, "server_dispatcher::next_r");
             }
 
             // Free the buffer
             safe_free(aggregated_buffer, "server_dispatcher::aggregated_buffer");
-        
-            /*int rc = pread(r->file_handle, r->buffer, r->size, r->offset);
-            // https://stackoverflow.com/questions/32683086/handling-incomplete-write-calls
-
-            if (rc != r->size) {
-                MPI_Abort(MPI_COMM_WORLD, ERROR_READ_FAILED);
-            }
-
-            // printf("READ id %ld: [] %c\n", r->id, r->buffer[0]);
-
-            MPI_Send(r->buffer, r->size, MPI_CHAR, r->rank, TAG_BUFFER, MPI_COMM_WORLD);
-
-            // Release the AGIOS request
-            sprintf(fh_str, "%015d", r->file_handle);
-
-            agios_release_request(fh_str, r->operation, r->size, r->offset, 0, r->size); // 0 is a sub-request
-            */
         }
         
         // We need to signal the processing thread to proceed and check for shutdown
         pthread_cond_signal(&ready_queue_signal);
-
-        // Free the request   
-        safe_free(r->buffer, "server_dispatcher::r->buffer");
-        safe_free(r, "server_dispatcher::r");
     }
 
     return NULL;
@@ -735,7 +720,7 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
-    char *buffer = malloc(MAXIMUM_REQUEST_SIZE * sizeof(char));
+    char *buffer = calloc(MAXIMUM_REQUEST_SIZE, sizeof(char));
 
     if (buffer == NULL) {
         log_error("ERROR: Unable to allocate the maximum memory size of %d bytes for requests ", MAXIMUM_REQUEST_SIZE);
@@ -836,7 +821,7 @@ int main(int argc, char *argv[]) {
     int simulation_files;
     int simulation_spatiality;
 
-    int simulation_validation;
+    int simulation_validation = 0;
 
     unsigned long simulation_request_size;
     unsigned long simulation_total_size;
@@ -1185,16 +1170,22 @@ int main(int argc, char *argv[]) {
 
         // Fill the buffer with fake data to be written
         for (b = 0; b < simulation_request_size; b++) {
-            buffer[b] = 'a' + client_rank;
+            buffer[b] = 'a' + (client_rank % 25);
         }
 
         if (client_rank == 0) {
             MPI_File_open(MPI_COMM_SELF, simulation_time_file, MPI_MODE_CREATE|MPI_MODE_WRONLY, MPI_INFO_NULL, &fh);
 
+            time_t t = time(NULL);
+            struct tm *tm = localtime(&t);
+            char timestamp[64];
+
+            assert(strftime(timestamp, sizeof(timestamp), "%F | %T", tm));
+
             sprintf(map, "---------------------------\n I/O Forwarding Simulation\n---------------------------\n");
             MPI_File_write(fh, &map, strlen(map), MPI_CHAR, &s);
 
-            sprintf(map, " forwarders: %13d\n clients:    %13d\n layout:     %13d\n spatiality: %13d\n request:    %13ld\n total:      %13ld\n---------------------------\n\n", world_size - client_size, client_size, simulation_files, simulation_spatiality, simulation_request_size, simulation_total_size);
+            sprintf(map, " | %s | \n---------------------------\n forwarders: %13d\n clients:    %13d\n layout:     %13d\n spatiality: %13d\n request:    %13ld\n total:      %13ld\n---------------------------\n\n", timestamp, world_size - client_size, client_size, simulation_files, simulation_spatiality, simulation_request_size, simulation_total_size);
             MPI_File_write(fh, &map, strlen(map), MPI_CHAR, &s);
         }
 
@@ -1451,11 +1442,6 @@ int main(int argc, char *argv[]) {
             // Issue the fake READ operation, that should wait for it to complete
             MPI_Send(r, 1, request_datatype, my_forwarding_server, TAG_REQUEST, MPI_COMM_WORLD); 
 
-            // We need to wait for the ACK so that the server is ready to send our buffer and the request ID
-            //MPI_Recv(&request_id, 1, MPI_INT, my_forwarding_server, TAG_ACK, MPI_COMM_WORLD, &status);
-
-            //log_debug("ACK received [id=%d], receiving buffer...", request_id);
-
             // We need to wait for the READ request to return before issuing another request
             MPI_Recv(buffer, r->size, MPI_CHAR, my_forwarding_server, TAG_BUFFER, MPI_COMM_WORLD, &status);
 
@@ -1475,8 +1461,8 @@ int main(int argc, char *argv[]) {
             // Check if the data that we read is the data we wrote
             if (simulation_validation) {
                 for (b = 0; b < r->size; b++) {
-                    if (buffer[b] != 'a' + client_rank) {
-                        log_debug("rank = %03d [%05ld] %c <> %c (%d)", client_rank, b, buffer[b], 'a' + client_rank, request_id);
+                    if (buffer[b] != 'a' + (client_rank % 25)) {
+                        log_info("rank = %03d [%05ld] %c <> %c (%d)", client_rank, b, buffer[b], 'a' + (client_rank % 25), request_id);
 
                         errors++;
                     }

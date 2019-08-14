@@ -24,6 +24,12 @@ struct fwd_list_head {
 			&pos->member != (head);										\
 			pos = fwd_list_entry(pos->member.next, typeof(*pos), member))
 
+#define fwd_list_for_each_entry_safe(pos, n, head, member)					\
+	for (pos = fwd_list_entry((head)->next, typeof(*pos), member),			\
+			n = fwd_list_entry(pos->member.next, typeof(*pos), member);		\
+			&pos->member != (head);											\
+			pos = n, n = fwd_list_entry(n->member.next, typeof(*n), member))
+
 void init_fwd_list_head(struct fwd_list_head *list);
 
 void __fwd_list_add(struct fwd_list_head *new, struct fwd_list_head *prev, struct fwd_list_head *next);

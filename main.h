@@ -25,7 +25,6 @@
 #define CLOSE 4
 
 #define MAXIMUM_REQUEST_SIZE (1* 1024 * 1024 * 1024)
-#define MAXIMUM_FILENAME_SIZE (1024)
 
 #define FWD_MAX_LISTEN_THREADS 128
 #define FWD_MAX_PROCESS_THREADS 128
@@ -59,6 +58,7 @@
 #define ERROR_INVALID_FILE_HANDLE 70013
 #define ERROR_FAILED_TO_CLOSE 70014
 #define ERROR_INVALID_VALIDATION 70015
+#define ERROR_PVFS_OPEN 700016
 
 struct request {
 	char file_name[255];
@@ -99,8 +99,10 @@ struct opened_handles {
 
 	char path[255];
 	int references;
+	//pvfs2_file_object pvfs_file;
 
 	UT_hash_handle hh;
+	UT_hash_handle hh_pvfs;
 };
 
 // Structure to store statistics of requests in each forwarding
