@@ -1,7 +1,7 @@
 CC=mpicc
-CFLAGS=-c -Wall #-g -DDEBUG
-LDFLAGS=-lagios -lgsl -lgslcblas -lm -L. -ljsmn -lpthread
-SOURCES=main.c jsmn.c log.c fwd_list.c
+CFLAGS=-c -Wall -D_GNU_SOURCE -I/opt/pvfs/include #-g -DDEBUG
+LDFLAGS=-lagios -lgsl -lgslcblas -lm -L. -ljsmn -L /opt/pvfs/lib -lpvfs2
+SOURCES=main.c jsmn.c log.c fwd_list.c pvfs_dispatcher.c str-utils.c
 OBJECTS=$(SOURCES:.c=.o)
 EXECUTABLE=fwd-sim
 

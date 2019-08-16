@@ -432,8 +432,7 @@ void *server_listen(void *p) {
 
             // Check if the file is already opened
             pthread_mutex_lock(&handles_lock);
-            //HASH_FIND_STR(opened_files, r->file_name, h);
-            HASH_FIND(hh, opened_files, r->file_name, strlen(r->file_name), h);
+            HASH_FIND_STR(opened_files, r->file_name, h);
 
             if (h == NULL) {
                 MPI_Abort(MPI_COMM_WORLD, ERROR_FAILED_TO_CLOSE);
@@ -445,14 +444,8 @@ void *server_listen(void *p) {
                 if (h->references == 0) {
                     log_debug("CLOSED: %s (%d)", h->path, h->fh);
 
-                    // Close the file
-                    close(h->fh);
-
                     // Remove the request from the hash
                     HASH_DEL(opened_files, h);
-
-                    HASH_CLEAR(hh, opened_files);
-                    HASH_CLEAR(hh_pvfs, opened_pvfs_files);
 
                     safe_free(h, "server_listen::h");
                 } else {
@@ -652,10 +645,10 @@ void *server_dispatcher(void *p) {
         } else if (r->operation == READ) {
             // We need to check if we have contiguous request to the same file handle, to aggregate them
             int aggregated_count = 0;
-            unsigned long int aggregated[32];
+            unsigned long int aggregated[16];
 
-            int32_t aggregated_sizes[32];
-            PVFS_offset aggregated_offsets[32];
+            int32_t aggregated_sizes[16];
+            PVFS_offset aggregated_offsets[16];
 
             // Set the original request into the aggregated
             aggregated[aggregated_count] = r->id;
@@ -669,7 +662,7 @@ void *server_dispatcher(void *p) {
             pthread_mutex_lock(&ready_queue_mutex);
 
             fwd_list_for_each_entry_safe(next_ready_r, tmp, &ready_queue, list) {
-                if (aggregated_count >= 32) {
+                if (aggregated_count >= 16) {
                     break;
                 }
 
@@ -704,7 +697,7 @@ void *server_dispatcher(void *p) {
                     aggregated_offsets[aggregated_count] = next_r->offset;
                     aggregated_count++;
                 } else {
-                    // Requests are not contiguous to the same filehandle
+                    // Requests are for another file handle
                     break;
                 } 
             }
@@ -1275,7 +1268,7 @@ int main(int argc, char *argv[]) {
     if (ret < 0) {
         PVFS_perror("PVFS_util_init_defaults", ret);
     } else {
-        log_info("listener: connected to the PVFS!\n");
+        log_info("listener: connected to the PVFS!");
     }
 
     memset(&credentials, 0, sizeof(PVFS_credentials));
