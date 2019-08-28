@@ -1,0 +1,10 @@
+{
+    "total_size": "2147483648", 
+    "request_size": "1048576", 
+    "spatiality": "contiguous", 
+    "listeners": "16", 
+    "number_of_files": "shared", 
+    "forwarders": "16", 
+    "path": "/scratch/cenapadrjsd/jean.bez/lustre-4-servers-4mb-stripe", 
+    "dispatchers": "16"
+}
