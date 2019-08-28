@@ -1,0 +1,10 @@
+{
+    "total_size": "2147483648", 
+    "request_size": "32768", 
+    "spatiality": "contiguous", 
+    "listeners": "16", 
+    "number_of_files": "shared", 
+    "forwarders": "1", 
+    "path": "/mnt/orangefs/test-613", 
+    "dispatchers": "16"
+}
