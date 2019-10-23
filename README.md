@@ -1,8 +1,8 @@
-
+![FORGE](forge.png)
 
 # I/O Forwarding Emulator
 
-The goal of this project is to quickly evaluate new I/O optimizations (such as new request schedulers) and modifications on I/O forwarding deployment and configuration on large-scale clusters and supercomputers. As modification on production-scale machines are often not allowed (as it could disrupt services), this straightforward emulator seeks to be a research alternative. 
+The goal of the I/O FORwardinG Emulator, a.k.a., **FORGE** is to quickly evaluate new I/O optimizations (such as new request schedulers) and modifications on I/O forwarding deployment and configuration on large-scale clusters and supercomputers. As modification on production-scale machines are often not allowed (as it could disrupt services), this straightforward emulator seeks to be a research alternative. 
 
 ## Getting Started
 
