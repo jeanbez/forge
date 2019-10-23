@@ -38,6 +38,12 @@ cmake ..
 make
 ```
 
+If you want FORGE to output debug messages (very verbose and should be used for development only), replace the `cmake` line by:
+
+```
+cmake -DDEBUG=ON ..
+```
+
 ## Emulating
 
 You first need to configure the AGIOS scheduling library and then the scenario (setup and configuration) you want to emulate.
