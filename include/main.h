@@ -18,6 +18,7 @@
 #include "jsmn.h"
 #include "fwd_list.h"
 #include "uthash.h"
+#include "pqueue.h"
 
 #define READ 0
 #define WRITE 1
@@ -25,8 +26,10 @@
 #define CLOSE 4
 
 #define MAXIMUM_REQUEST_SIZE (1* 1024 * 1024 * 1024)
+#define MAXIMUM_BATCH_SIZE 16
+#define MAXIMUM_QUEUE_ELEMENTS 1024
 
-#define FWD_MAX_LISTEN_THREADS 128
+#define FWD_MAX_HANDLER_THREADS 128
 #define FWD_MAX_PROCESS_THREADS 128
 
 #define TAG_REQUEST 10001
@@ -39,6 +42,9 @@
 
 #define CONTIGUOUS 0
 #define STRIDED 1
+
+/* Timeout in seconds */
+#define TIMEOUT 1
 
 #define AGIOS_CONFIGURATION "/tmp/agios.conf"
 /*#define AGIOS_CONFIGURATION "/scratch/cenapadrjsd/jean.bez/agios/agios.conf"*/
@@ -59,6 +65,7 @@
 #define ERROR_FAILED_TO_CLOSE 70014
 #define ERROR_INVALID_VALIDATION 70015
 #define ERROR_PVFS_OPEN 700016
+#define ERROR_VALIDATION_FAILED 700017
 
 struct request {
 	char file_name[255];
@@ -72,7 +79,7 @@ struct request {
 
 // Structure to keep track of the requests in the forwarding layer
 struct forwarding_request {
-	unsigned long id;
+	unsigned long long int id;
 
 	int rank;
 
@@ -84,11 +91,15 @@ struct forwarding_request {
 	unsigned long size;
 	char *buffer;
 
+	// To handle the request while in the incoming queue
+	struct fwd_list_head list;
+
+	// To handle the request once it is scheduled by AGIOS
 	UT_hash_handle hh;
 };
 
 struct ready_request {
-	int id;
+	unsigned long long int id;
 
 	struct fwd_list_head list;
 };
@@ -116,7 +127,7 @@ struct forwarding_statistics {
 	unsigned long int write_size;
 };
 
-unsigned long generate_identifier();
+unsigned long long int generate_identifier();
 
 void callback(unsigned long long int id);
 
@@ -125,7 +136,42 @@ void stop_AGIOS();
 
 int get_forwarding_server();
 
-void *server_listen(void *p);
+void *server_listener(void *p);
+void *server_handler(void *p);
 void *server_dispatcher(void *p);
 
 void safe_memory_free(void ** pointer_address, char * id);
+
+typedef struct node_t {
+	pqueue_pri_t priority;
+	int value;
+	size_t position;
+} node_t;
+
+static int compare_priority(pqueue_pri_t next, pqueue_pri_t current) {
+	return (next < current);
+}
+
+static pqueue_pri_t get_priority(void *a) {
+	return ((node_t *) a)->priority;
+}
+
+static void set_priority(void *a, pqueue_pri_t priority) {
+	((node_t *) a)->priority = priority;
+}
+
+static size_t get_position(void *a) {
+	return ((node_t *) a)->position;
+}
+
+static void set_position(void *a, size_t position) {
+	((node_t *) a)->position = position;
+}
+
+#ifdef DEBUG
+static void print_node(FILE *out, void *a) {
+	node_t *n = a;
+
+	fprintf(out, "priority: %lld, value: %d\n", n->priority, n->value);
+}
+#endif

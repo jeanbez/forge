@@ -1,0 +1,1 @@
+/usr/bin/cc -Wall   CMakeFiles/forge.dir/src/main.c.o CMakeFiles/forge.dir/src/jsmn.c.o CMakeFiles/forge.dir/src/log.c.o CMakeFiles/forge.dir/src/fwd_list.c.o CMakeFiles/forge.dir/src/pqueue.c.o CMakeFiles/forge.dir/src/utils.c.o  -o forge -Wl,-rpath,/usr/local/lib -lagios -lgsl -lgslcblas -lm -lpthread -lexplain /usr/local/lib/libmpi.so 

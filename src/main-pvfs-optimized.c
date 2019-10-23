@@ -1,3 +1,5 @@
+#include "pvfs_dispatcher.h"
+
 #include "main.h"
 #include "log.h"
 
@@ -13,6 +15,7 @@ int simulation_forwarders = 0;
 // Declares the hash to hold the requests and initialize it to NULL (mandatory to initialize to NULL)
 struct forwarding_request *requests = NULL;
 struct opened_handles *opened_files = NULL;
+struct opened_handles *opened_pvfs_files = NULL;
 
 int world_size, world_rank;
 
@@ -21,6 +24,9 @@ struct client agios_client;
 
 int global_id = 1000000;
 pthread_mutex_t global_id_lock;
+
+int pvfs_fh_id = 100;
+pthread_mutex_t pvfs_fh_id_lock;
 
 unsigned long generate_identifier() {
     pthread_mutex_lock(&global_id_lock);
@@ -32,6 +38,18 @@ unsigned long generate_identifier() {
     pthread_mutex_unlock(&global_id_lock);
 
     return global_id;
+}
+
+int generate_pfs_identifier() {
+    pthread_mutex_lock(&pvfs_fh_id_lock);
+    pvfs_fh_id++;
+
+    if (pvfs_fh_id > INT_MAX - 10) {
+        pvfs_fh_id = 100;
+    }
+    pthread_mutex_unlock(&pvfs_fh_id_lock);
+
+    return pvfs_fh_id;
 }
 
 // Controle the shutdown signal
@@ -71,9 +89,6 @@ void callback(unsigned long long int id) {
     // Place the request in the ready queue to be issued by the processing threads
     fwd_list_add_tail(&(ready_r->list), &ready_queue);
 
-    // Print the items on the list to make sure we have all the requests
-    log_trace("CALLBACK READY QUEUE");
-
     #ifdef DEBUG
     fwd_list_for_each_entry(tmp, &ready_queue, list) {
         log_trace("\tcallback request: %d", tmp->id);
@@ -99,9 +114,6 @@ void callback_aggregated(unsigned long long int *ids, int total) {
 
         // Place the request in the ready queue to be issued by the processing threads
         fwd_list_add_tail(&(ready_r->list), &ready_queue);
-
-        // Print the items on the list to make sure we have all the requests
-        log_trace("AGG READY QUEUE");
 
         #ifdef DEBUG
         fwd_list_for_each_entry(tmp, &ready_queue, list) {
@@ -139,12 +151,15 @@ int get_forwarding_server() {
     return (world_rank - simulation_forwarders) / ((world_size - simulation_forwarders) / simulation_forwarders);
 }
 
+#ifdef DEBUG
 struct forwarding_statistics *statistics;
-
 pthread_mutex_t statistics_lock;
+#endif
+
+PVFS_credentials credentials;
 
 void *server_listen(void *p) {
-    int i = 0, flag = 0;
+    int i = 0, flag = 0, ret;
     int ack = 1;
 
     MPI_Datatype request_datatype;
@@ -251,13 +266,33 @@ void *server_listen(void *p) {
             if (h == NULL) {
                 log_debug("OPEN FILE: %s", r->file_name);
 
-                // Open the file
-                int fh = open(r->file_name, O_CREAT | O_RDWR, 0666);
-                
                 h = (struct opened_handles *) malloc(sizeof(struct opened_handles));
 
                 if (h == NULL) {
                     MPI_Abort(MPI_COMM_WORLD, ERROR_MEMORY_ALLOCATION);
+                }
+
+                // Generate an identifier for the PVFS file
+                int fh = generate_pfs_identifier();
+
+                // Open the file in PVFS
+                ret = PVFS_util_resolve(
+                    r->file_name,
+                    &(h->pvfs_file.fs_id),
+                    h->pvfs_file.pvfs2_path,
+                    PVFS_NAME_MAX
+                );
+
+                log_debug("----> (ret=%d) %s", ret, h->pvfs_file.pvfs2_path);
+
+                strncpy(h->pvfs_file.user_path, r->file_name, PVFS_NAME_MAX);
+
+                ret = generic_open(&h->pvfs_file, &credentials, 0, 0, NULL, OPEN_DEST);
+
+                if (ret < 0) {
+                    log_debug("Could not open %s", r->file_name);
+
+                    MPI_Abort(MPI_COMM_WORLD, ERROR_PVFS_OPEN);
                 }
 
                 // Saves the file handle in the hash
@@ -265,7 +300,9 @@ void *server_listen(void *p) {
                 strcpy(h->path, r->file_name);
                 h->references = 1;
 
-                HASH_ADD_STR(opened_files, path, h);
+                // Include in both hashes
+                HASH_ADD(hh, opened_files, path, strlen(r->file_name), h);
+                HASH_ADD(hh_pvfs, opened_pvfs_files, fh, sizeof(int), h);
             } else {
                 struct opened_handles *tmp = (struct opened_handles *) malloc(sizeof(struct opened_handles));
 
@@ -276,8 +313,9 @@ void *server_listen(void *p) {
                 // We need to increment the number of users of this handle
                 h->references = h->references + 1;
                 
-                HASH_REPLACE_STR(opened_files, path, h, tmp);
-                
+                HASH_REPLACE(hh, opened_files, path, strlen(r->file_name), h, tmp);
+                HASH_REPLACE(hh_pvfs, opened_pvfs_files, fh, sizeof(int), h, tmp);
+
                 log_debug("FILE: %s", r->file_name);
             }
 
@@ -294,9 +332,11 @@ void *server_listen(void *p) {
             MPI_Send(&h->fh, 1, MPI_INT, r->rank, TAG_HANDLE, MPI_COMM_WORLD);
 
             // Update the statistics
+            #ifdef DEBUG
             pthread_mutex_lock(&statistics_lock);
             statistics->open += 1;
             pthread_mutex_unlock(&statistics_lock);
+            #endif
 
             // We can free the request as it has been processed
             safe_free(r, "server_listen::r");
@@ -308,7 +348,7 @@ void *server_listen(void *p) {
         if (r->operation == READ) {
             // Allocate the buffer
             r->buffer = calloc(r->size, sizeof(char));
-
+            
             // Include the request into the hash list
             pthread_mutex_lock(&requests_lock);
             HASH_ADD_INT(requests, id, r);
@@ -319,10 +359,12 @@ void *server_listen(void *p) {
             sprintf(fh_str, "%015d", r->file_handle);
 
             // Update the statistics
+            #ifdef DEBUG
             pthread_mutex_lock(&statistics_lock);
             statistics->read += 1;
             statistics->read_size += r->size;
             pthread_mutex_unlock(&statistics_lock);
+            #endif
 
             // Send the request to AGIOS
             if (agios_add_request(fh_str, r->operation, r->offset, r->size, (void *) r->id, &agios_client, 0)) {
@@ -368,10 +410,12 @@ void *server_listen(void *p) {
             sprintf(fh_str, "%015d", r->file_handle);
 
             // Update the statistics
+            #ifdef DEBUG
             pthread_mutex_lock(&statistics_lock);
             statistics->write += 1;
             statistics->write_size += r->size;
             pthread_mutex_unlock(&statistics_lock);
+            #endif
 
             // Send the request to AGIOS
             if (agios_add_request(fh_str, r->operation, r->offset, r->size, (void *) r->id, &agios_client, 0)) {
@@ -402,13 +446,9 @@ void *server_listen(void *p) {
                 if (h->references == 0) {
                     log_debug("CLOSED: %s (%d)", h->path, h->fh);
 
-                    // Close the file
-                    close(h->fh);
-
                     // Remove the request from the hash
-                    HASH_DEL(opened_files, h);
-
-                    HASH_CLEAR(hh, opened_files);
+                    HASH_DELETE(hh, opened_files, h);
+                    HASH_DELETE(hh_pvfs, opened_files, h);
 
                     safe_free(h, "server_listen::h");
                 } else {
@@ -418,8 +458,9 @@ void *server_listen(void *p) {
                         MPI_Abort(MPI_COMM_WORLD, ERROR_MEMORY_ALLOCATION);
                     }
 
-                    HASH_REPLACE_STR(opened_files, path, h, tmp);
-
+                    HASH_REPLACE(hh, opened_files, path, strlen(r->file_name), h, tmp);
+                    HASH_REPLACE(hh_pvfs, opened_pvfs_files, fh, sizeof(int), h, tmp);
+                
                     log_debug("FILE HANDLE: %d (references = %d)", h->fh, h->references);
                 }               
             }
@@ -431,9 +472,11 @@ void *server_listen(void *p) {
             MPI_Send(&ack, 1, MPI_INT, r->rank, TAG_ACK, MPI_COMM_WORLD);
 
             // Update the statistics
+            #ifdef DEBUG
             pthread_mutex_lock(&statistics_lock);
             statistics->close += 1;
             pthread_mutex_unlock(&statistics_lock);
+            #endif
 
             // We can free the request as it has been processed
             safe_free(r, "server_listen::r");
@@ -453,7 +496,7 @@ void *server_listen(void *p) {
 void *server_dispatcher(void *p) {
     int request_id, next_request_id;
 
-    int ack = 1;
+    int ack = 1, ret;
     struct forwarding_request *r;
     struct forwarding_request *next_r;
 
@@ -465,6 +508,15 @@ void *server_dispatcher(void *p) {
     char fh_str[255];
 
     char *aggregated_buffer;
+
+    // PVFS variables needed for the direct integration
+    PVFS_offset file_req_offset = 0;
+    PVFS_Request file_req, mem_req;
+    PVFS_sysresp_io resp_io;
+
+    #ifdef DEBUG
+    // cahr *tmp;
+    #endif
 
     log_debug("DISPATCHER THREAD %ld", pthread_self());
 
@@ -540,13 +592,50 @@ void *server_dispatcher(void *p) {
             HASH_DEL(requests, r);
             pthread_mutex_unlock(&requests_lock);
 
-            int rc = pwrite(r->file_handle, r->buffer, r->size, r->offset);
-            // https://stackoverflow.com/questions/32683086/handling-incomplete-write-calls
-            // https://www.systutorials.com/docs/linux/man/3p-pwrite/
-
-            if (rc != r->size) {
-                MPI_Abort(MPI_COMM_WORLD, ERROR_WRITE_FAILED);
+            // For now we will not merge the requests to PVFS, but rather issue single request
+            
+            // Buffer is contiguous in memory because of calloc
+            ret = PVFS_Request_contiguous(
+                r->size,
+                PVFS_CHAR,
+                &mem_req
+            );
+            
+            if (ret < 0) {
+                log_error("WRITE PVFS_Request_contiguous in memory failed");
             }
+
+            struct opened_handles *h = NULL;
+
+            pthread_mutex_lock(&handles_lock);
+            HASH_FIND(hh_pvfs, opened_pvfs_files, &r->file_handle, sizeof(int), h);
+                
+            if (h == NULL) {
+                log_error("unable to find the handle");
+            }
+
+            pthread_mutex_unlock(&handles_lock);
+
+            ret = PVFS_sys_write(
+                h->pvfs_file.ref, 
+                PVFS_BYTE, 
+                r->offset,
+                r->buffer,
+                mem_req, 
+                &credentials, 
+                &resp_io, 
+                hints
+            );
+
+            PVFS_Request_free(&mem_req);
+
+            #ifdef DEBUG
+            if (ret == 0) {                
+                log_debug("%ld\n", resp_io.total_completed);
+            } else {
+                PVFS_perror("PVFS_sys_write", ret);
+            }
+            #endif
 
             // Send ACK to the client to indicate the operation was completed
             MPI_Send(&ack, 1, MPI_INT, r->rank, TAG_ACK, MPI_COMM_WORLD); 
@@ -562,10 +651,16 @@ void *server_dispatcher(void *p) {
         } else if (r->operation == READ) {
             // We need to check if we have contiguous request to the same file handle, to aggregate them
             int aggregated_count = 0;
-            unsigned long int aggregated[32];
+            unsigned long int aggregated[16];
+
+            int32_t aggregated_sizes[16];
+            PVFS_offset aggregated_offsets[16];
 
             // Set the original request into the aggregated
-            aggregated[aggregated_count++] = r->id;
+            aggregated[aggregated_count] = r->id;
+            aggregated_sizes[aggregated_count] = r->size;
+            aggregated_offsets[aggregated_count] = r->offset;
+            aggregated_count++;
             
             unsigned long int aggregated_size = r->size;
 
@@ -573,7 +668,7 @@ void *server_dispatcher(void *p) {
             pthread_mutex_lock(&ready_queue_mutex);
 
             fwd_list_for_each_entry_safe(next_ready_r, tmp, &ready_queue, list) {
-                if (aggregated_count >= 32) {
+                if (aggregated_count >= 16) {
                     break;
                 }
 
@@ -595,7 +690,7 @@ void *server_dispatcher(void *p) {
                     // Determine the aggregated request size
                     aggregated_size += next_r->size;
 
-                    log_debug("---> AGGREGATE (%ld + %ld) size = %ld!", r->id, next_r->id, aggregated_size);
+                    log_debug("---> AGGREGATE (%ld + %ld) offsets = [%ld, %ld] size = %ld!", r->id, next_r->id, r->offset, next_r->offset, aggregated_size);
                     
                     // Remove the request form the list
                     fwd_list_del(&next_ready_r->list);
@@ -603,11 +698,14 @@ void *server_dispatcher(void *p) {
                     safe_free(next_ready_r, "server_dispatcher::005");
 
                     // Make sure we know which requests we aggregated so that we can reply to their clients
-                    aggregated[aggregated_count++] = next_request_id;
+                    aggregated[aggregated_count] = next_request_id;
+                    aggregated_sizes[aggregated_count] = next_r->size;
+                    aggregated_offsets[aggregated_count] = next_r->offset;
+                    aggregated_count++;
                 } else {
-                    // Requests are not contiguous to the same filehandle
+                    // Requests are for another file handle
                     break;
-                }    
+                } 
             }
 
             // Unlock the queue mutex
@@ -617,12 +715,75 @@ void *server_dispatcher(void *p) {
             
             log_debug("aggregated_size = %ld", aggregated_size);
 
-            // Issue the large aggregated request
-            int rc = pread(r->file_handle, aggregated_buffer, aggregated_size, r->offset);
+            file_req_offset = 0;
 
-            if (rc != aggregated_size) {
-                MPI_Abort(MPI_COMM_WORLD, ERROR_READ_FAILED);
+            // Buffer is contiguous in memory because of calloc
+            ret = PVFS_Request_contiguous(
+                aggregated_size,
+                PVFS_CHAR,
+                &mem_req
+            );
+            
+            if (ret < 0) {
+                log_error("READ PVFS_Request_contiguous in memory failed");
             }
+
+            if (aggregated_count == 1) {
+                file_req_offset = r->offset;
+
+                ret = PVFS_Request_contiguous(
+                    aggregated_size,
+                    PVFS_CHAR,
+                    &file_req
+                );
+                
+                if (ret < 0) {
+                    log_error("READ PVFS_Request_contiguous failure");
+                }
+            } else {
+                ret = PVFS_Request_indexed(
+                    aggregated_count,
+                    aggregated_sizes,
+                    aggregated_offsets,
+                    PVFS_CHAR,
+                    &file_req
+                );
+
+                log_debug("READ PVFS_Request_indexed returned: %d", ret);
+            }
+
+            struct opened_handles *h = NULL;
+
+            pthread_mutex_lock(&handles_lock);
+            HASH_FIND(hh_pvfs, opened_pvfs_files, &r->file_handle, sizeof(int), h);
+                
+            if (h == NULL) {
+                log_error("unable to find the handle");
+            }
+
+            pthread_mutex_unlock(&handles_lock);
+
+            ret = PVFS_sys_read(
+                h->pvfs_file.ref, 
+                file_req, 
+                file_req_offset,
+                aggregated_buffer, 
+                mem_req, 
+                &credentials, 
+                &resp_io, 
+                hints
+            );
+
+            PVFS_Request_free(&mem_req);
+            PVFS_Request_free(&file_req);
+
+            #ifdef DEBUG
+            if (ret == 0) {                
+                log_debug("%ld\n", resp_io.total_completed);
+            } else {
+                PVFS_perror("PVFS_sys_read", ret);
+            }
+            #endif
 
             unsigned long int offset = 0;
 
@@ -1095,6 +1256,7 @@ int main(int argc, char *argv[]) {
         pthread_t listen[FWD_MAX_LISTEN_THREADS];
         pthread_t dispatcher[FWD_MAX_PROCESS_THREADS];
 
+        #ifdef DEBUG
         statistics = (struct forwarding_statistics *) malloc(sizeof(struct forwarding_statistics));
 
         statistics->open = 0;
@@ -1104,6 +1266,21 @@ int main(int argc, char *argv[]) {
 
         statistics->read_size = 0;
         statistics->write_size = 0;
+        #endif
+
+    int ret;
+
+    PVFS_hint_import_env(&hints);
+    ret = PVFS_util_init_defaults();
+    
+    if (ret < 0) {
+        PVFS_perror("PVFS_util_init_defaults", ret);
+    } else {
+        log_info("listener: connected to the PVFS!");
+    }
+
+    memset(&credentials, 0, sizeof(PVFS_credentials));
+    PVFS_util_gen_credentials(&credentials);
 
         // Create threads to issue the requests
         for (i = 0; i < simulation_dispatchers; i++) {
@@ -1112,7 +1289,7 @@ int main(int argc, char *argv[]) {
 
         for (i = 0; i < simulation_listeners; i++) {
             pthread_create(&listen[i], NULL, server_listen, NULL);
-        }
+          }
 
         // Wait for the intitialization of servers and clients to complete
         MPI_Barrier(MPI_COMM_WORLD);
@@ -1129,9 +1306,14 @@ int main(int argc, char *argv[]) {
 
         MPI_Barrier(forwarding_comm);
 
+        // Finalizes the PVFS connection and clear the hints
+        PVFS_sys_finalize();
+        PVFS_hint_free(hints);
+    
         // Stops the AGIOS scheduling library
         stop_AGIOS();
 
+        #ifdef DEBUG
         MPI_File_open(MPI_COMM_SELF, simulation_stats_file, MPI_MODE_CREATE|MPI_MODE_WRONLY, MPI_INFO_NULL, &fh);
 
         char stats[1048576];
@@ -1152,6 +1334,7 @@ int main(int argc, char *argv[]) {
 
         // Close the file
         MPI_File_close(&fh);
+        #endif
     } else {
         int forwarding_fh;
 
@@ -1463,6 +1646,10 @@ int main(int argc, char *argv[]) {
                 for (b = 0; b < r->size; b++) {
                     if (buffer[b] != 'a' + (client_rank % 25)) {
                         log_info("rank = %03d [%05ld] %c <> %c (%d)", client_rank, b, buffer[b], 'a' + (client_rank % 25), request_id);
+                        // pra read nao recebe request+id!!!!
+                        // ta recebeno o buffer errado
+                        // ou ta lendo errado do pfs / ou ta escrevendo errado tmb (NAO TA!)
+                        // ta lendo errado! pq?
 
                         errors++;
                     }
@@ -1559,9 +1746,11 @@ int main(int argc, char *argv[]) {
         // Free the request
         safe_free(r, "main:001");
 
+        #ifdef DEBUG
         if (is_forwarding) {
             safe_free(statistics, "main:002");
         }
+        #endif
 
         /*
          * SHUTDOWN---------------------------------------------------------------------------------
