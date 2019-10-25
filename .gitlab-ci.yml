@@ -5,14 +5,14 @@ variables:
   BUILD_PATH: "${CI_PROJECT_DIR}/forge/build"
   INSTALL_PATH: "${CI_PROJECT_DIR}/forge/install"
 
-image: jeanbez/forge
+image: forge/forge:forge_debian
 
 compile FORGE:
   stage: build
   script:
     - mkdir -p ${BUILD_PATH} && cd ${BUILD_PATH}
     - cmake -DCMAKE_INSTALL_PREFIX=${INSTALL_PATH} ${CI_PROJECT_DIR}
-    - make -j$(nproc) install
+    - make
   artifacts:
     paths:
      - ${INSTALL_PATH}

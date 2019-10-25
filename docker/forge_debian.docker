@@ -18,6 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 		sudo \
 		gcc \
 		g++ \
+		openmpi-bin \
+		libopenmpi-dev \
 		# AGIOS dependencies
 		libconfig-dev \
 		# FORGE dependencies
