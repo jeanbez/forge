@@ -1,0 +1,11 @@
+{
+    "forwarders": 1,
+    "handlers": 16,
+    "dispatchers": 16,
+    "path": "/tmp/file",
+    "number_of_files": "file-per-process",
+    "spatiality": "contiguous",
+    "total_size": 134217728,
+    "request_size": 32768,
+    "validation": 0
+}

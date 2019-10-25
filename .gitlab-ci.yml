@@ -1,9 +1,12 @@
 stages:
   - build
+  - test
 
 variables:
   BUILD_PATH: "${CI_PROJECT_DIR}/forge/build"
   INSTALL_PATH: "${CI_PROJECT_DIR}/forge/install"
+  LOG_PATH: "${CI_PROJECT_DIR}/logs"
+  TESTS_PATH:  "${CI_PROJECT_DIR}/test"
 
 image: jeanbez/forge
 
@@ -16,3 +19,14 @@ compile FORGE:
   artifacts:
     paths:
      - ${INSTALL_PATH}
+
+test file-per-process:
+  stage: test
+  script:
+    - mkdir -p "${LOG_PATH}"
+    - ${INSTALL_PATH}/bin/gkfs_daemon --mount /tmp/mountdir --root /tmp/root
+    - mpirun -np 9 --oversubscribe ${INSTALL_PATH}/forge ${TESTS_PATH}/file-per-process.json ${CI_PROJECT_DIR}/logs/file-per-process.log
+  artifacts:
+    paths:
+     - "${LOG_PATH}"
+
