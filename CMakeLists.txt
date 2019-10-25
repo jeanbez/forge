@@ -18,6 +18,7 @@ if(PVFS)
 endif(PVFS)
 
 find_package(MPI 3.0 REQUIRED)
+include_directories(${MPI_C_INCLUDE_DIRS})
 find_package(GSL 2.4 REQUIRED)
 include_directories(${GSL_INCLUDE_DIR})
 
