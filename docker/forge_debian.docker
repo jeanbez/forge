@@ -1,0 +1,32 @@
+FROM debian:10-slim
+
+LABEL Description="Debian based environment to build and test FORGE"
+
+ENV FORGE_PATH /opt/forge
+ENV AGIOS_PATH /opt/agios
+ENV SCRIPTS_PATH ${FORGE_PATH}/scripts
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+		git \
+		curl \
+		ca-certificates \
+		libtool \
+		pkg-config \
+		make \
+		automake \
+		cmake \
+		sudo \
+		gcc \
+		g++ \
+		# AGIOS dependencies
+		libconfig-dev \
+		# FORGE dependencies
+		libexplain-dev \
+		libgsl-dev \
+# Clean apt cache to reduce image layer size
+&& rm -rf /var/lib/apt/lists/*
+
+COPY scripts/install-agios.sh $SCRIPTS_PATH/
+
+# Get our modified copy of AGIOS and install it
+RUN /bin/bash $SCRIPTS_PATH/install-agios.sh
