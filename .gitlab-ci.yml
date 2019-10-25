@@ -24,7 +24,6 @@ test file-per-process:
   stage: test
   script:
     - mkdir -p "${LOG_PATH}"
-    - ${INSTALL_PATH}/bin/gkfs_daemon --mount /tmp/mountdir --root /tmp/root
     - mpirun -np 9 --oversubscribe ${INSTALL_PATH}/forge ${TESTS_PATH}/file-per-process.json ${CI_PROJECT_DIR}/logs/file-per-process.log
   artifacts:
     paths:
