@@ -24,7 +24,7 @@ test file-per-process:
   stage: test
   script:
     - mkdir -p "${LOG_PATH}"
-    - mpirun --allow-run-as-root --oversubscribe --np 9 ${INSTALL_PATH}/forge ${TESTS_PATH}/file-per-process.json ${CI_PROJECT_DIR}/logs/file-per-process.log
+    - mpirun --allow-run-as-root --oversubscribe --np 9 ./forge ${TESTS_PATH}/file-per-process.json ${CI_PROJECT_DIR}/logs/file-per-process.log
   artifacts:
     paths:
      - "${LOG_PATH}"
