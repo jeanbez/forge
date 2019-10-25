@@ -2,10 +2,10 @@
 #include "utils.h"
 #include "log.h"
 
+#ifdef EXPLAIN
 #include <libexplain/pread.h>
 #include <libexplain/pwrite.h>
-
-// https://efxa.org/2014/10/18/a-safe-wrapper-implemented-in-c-for-freeing-dynamic-allocated-memory/
+#endif
 
 const int MAX_STRING = 100;
 const int EMPTY = 0;
@@ -32,8 +32,6 @@ unsigned long long int generate_identifier() {
         global_id = 1000000;
     }
     pthread_mutex_unlock(&global_id_lock);
-
-    //log_trace("generated new id: %ld", global_id);
 
     return global_id;
 }
@@ -164,10 +162,11 @@ void *server_handler(void *p) {
         // While the queue is empty wait for the condition variable to be signalled
         while (fwd_list_empty(&incoming_queue)) {
             // Check for shutdown signal
-            if (shutdown == (world_size - simulation_forwarders) / simulation_forwarders) {
-                
+            if (shutdown_control) {
                 // Unlock the queue mutex to allow other threads to complete
                 pthread_mutex_unlock(&incoming_queue_mutex);
+
+                pthread_cond_broadcast(&incoming_queue_signal);
 
                 log_debug("SHUTDOWN: handler %d thread %ld", world_rank, pthread_self());
 
@@ -201,21 +200,27 @@ void *server_handler(void *p) {
             if (h == NULL) {
                 log_debug("OPEN FILE: %s", r->file_name);
 
-                // Open the file
-                int fh = open(r->file_name, O_CREAT | O_RDWR, 0666);
-                
                 h = (struct opened_handles *) malloc(sizeof(struct opened_handles));
 
                 if (h == NULL) {
                     MPI_Abort(MPI_COMM_WORLD, ERROR_MEMORY_ALLOCATION);
                 }
 
+                int fh = open(r->file_name, O_CREAT | O_RDWR, 0666);
+                
+                if (fh < 0) {
+                    log_debug("Could not open %s", r->file_name);
+
+                    MPI_Abort(MPI_COMM_WORLD, ERROR_POSIX_OPEN);
+                }
+                
                 // Saves the file handle in the hash
                 h->fh = fh;
                 strcpy(h->path, r->file_name);
                 h->references = 1;
 
-                HASH_ADD_STR(opened_files, path, h);
+                // Include in both hashes
+                HASH_ADD(hh, opened_files, path, strlen(r->file_name), h);
             } else {
                 struct opened_handles *tmp = (struct opened_handles *) malloc(sizeof(struct opened_handles));
 
@@ -226,8 +231,8 @@ void *server_handler(void *p) {
                 // We need to increment the number of users of this handle
                 h->references = h->references + 1;
                 
-                HASH_REPLACE_STR(opened_files, path, h, tmp);
-                
+                HASH_REPLACE(hh, opened_files, path, strlen(r->file_name), h, tmp);
+
                 log_debug("FILE: %s", r->file_name);
             }
 
@@ -353,8 +358,8 @@ void *server_handler(void *p) {
                     close(h->fh);
 
                     // Remove the request from the hash
-                    HASH_DEL(opened_files, h);
-
+                    HASH_DELETE(hh, opened_files, h);
+                    
                     safe_free(h, "server_listener::h");
                 } else {
                     struct opened_handles *tmp = (struct opened_handles *) malloc(sizeof(struct opened_handles));
@@ -363,8 +368,8 @@ void *server_handler(void *p) {
                         MPI_Abort(MPI_COMM_WORLD, ERROR_MEMORY_ALLOCATION);
                     }
 
-                    HASH_REPLACE_STR(opened_files, path, h, tmp);
-
+                    HASH_REPLACE(hh, opened_files, path, strlen(r->file_name), h, tmp);
+                    
                     log_debug("FILE HANDLE: %d (references = %d)", h->fh, h->references);
                 }               
             }
@@ -437,10 +442,8 @@ void *server_listener(void *p) {
                 log_debug("SHUTDOWN: listen %d thread %ld", world_rank, pthread_self());
 
                 // We need to signal the processing thread to proceed and check for shutdown
-                //pthread_mutex_lock(&ready_queue_mutex);
                 pthread_cond_broadcast(&ready_queue_signal);
-                //pthread_mutex_unlock(&ready_queue_mutex);
-
+                
                 // We need to cancel the MPI_Irecv
                 MPI_Cancel(&request);
 
@@ -525,6 +528,8 @@ void *server_dispatcher(void *p) {
     int aggregated_count = 0;
     unsigned long int aggregated[MAXIMUM_BATCH_SIZE];
     unsigned long int aggregated_size = 0;
+    int32_t aggregated_sizes[MAXIMUM_BATCH_SIZE];
+    int64_t aggregated_offsets[MAXIMUM_BATCH_SIZE];
 
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
@@ -613,10 +618,13 @@ void *server_dispatcher(void *p) {
             if (rc != r->size) {
                 log_error("write %d of expected %d", rc, r->size);
 
+                #ifdef EXPLAIN
                 int err = errno;
                 char message[3000];
                 explain_message_errno_pwrite(message, sizeof(message), err, r->file_handle, r->buffer, r->size, r->offset);
                 log_error("---> %s\n", message);
+                #endif
+
                 log_error("r->filehandle = %ld, r->size = %ld, r->offset = %ld", r->file_handle, r->size, r->offset);
                 
                 MPI_Abort(MPI_COMM_WORLD, ERROR_WRITE_FAILED);
@@ -646,7 +654,6 @@ void *server_dispatcher(void *p) {
             pqueue_insert(pq, pq_item);
 
             fwd_list_for_each_entry_safe(next_ready_r, tmp, &ready_queue, list) {
-                break;
                 // Fetch the next request ID
                 next_request_id = next_ready_r->id;
 
@@ -661,8 +668,6 @@ void *server_dispatcher(void *p) {
 
                 // Check if it is for the same filehandle
                 if (r->operation == next_r->operation && r->file_handle == next_r->file_handle) {
-                    aggregated_count++;
-
                     node_t *pq_item = malloc(sizeof(node_t));
 
                     pq_item->priority = -next_r->offset;
@@ -691,33 +696,40 @@ void *server_dispatcher(void *p) {
 
             node_t *next = malloc(sizeof(node_t));
 
-            while (pqueue_size(pq) != 0) {
-                // Make all the possible aggregations
+            // Make all the possible aggregations
 
-                // Get the first request form the priority queue to serve as a base for aggregations
+            // Get the first request form the priority queue to serve as a base for aggregations
+            next = pqueue_pop(pq);
+
+            // We need to get the request to be our start
+            pthread_mutex_lock(&requests_lock);
+            log_trace("next->priority = %d, next->value = %d", next->priority, next->value);
+            HASH_FIND_INT(requests, &next->value, r);
+
+            if (r == NULL) {
+                log_error("3. unable to find the request");
+            };
+            pthread_mutex_unlock(&requests_lock);
+
+            log_trace("r->id = %ld, r->offset = %ld, r->size = %ld", r->id, r->offset, r->size);
+
+            free(next);
+
+            // We need to check if we have contiguous request to the same file handle, to aggregate them
+            aggregated_count = 0;
+            aggregated[aggregated_count] = r->id;
+            aggregated_sizes[aggregated_count] = r->size;
+            aggregated_offsets[aggregated_count] = r->offset;
+            aggregated_size = r->size;
+            aggregated_count++;
+
+            int last_request = 0;
+
+            // We iterate the aggreation queue (which is local to every process) and merge the requests
+            while (1) {
                 next = pqueue_pop(pq);
 
-                // We need to get the request to be our start
-                pthread_mutex_lock(&requests_lock);
-                log_trace("next->priority = %d, next->value = %d", next->priority, next->value);
-                HASH_FIND_INT(requests, &next->value, r);
-
-                if (r == NULL) {
-                    log_error("3. unable to find the request");
-                };
-                pthread_mutex_unlock(&requests_lock);
-
-                log_trace("r->id = %ld, r->offset = %ld, r->size = %ld", r->id, r->offset, r->size);
-
-                free(next);
-
-                // We need to check if we have contiguous request to the same file handle, to aggregate them
-                aggregated_count = 0;
-                aggregated[aggregated_count++] = r->id;
-                aggregated_size = r->size;
-
-                // We iterate the aggreation queue (which is local to every process) and merge the requests
-                while ((next = pqueue_pop(pq))) {
+                if (next != NULL) {
                     // We need to get the next request according to the priority
                     pthread_mutex_lock(&requests_lock);
                     HASH_FIND_INT(requests, &next->value, next_r);
@@ -728,152 +740,108 @@ void *server_dispatcher(void *p) {
                     pthread_mutex_unlock(&requests_lock);
 
                     free(next);
-
+                    
                     // See if we can actually aggregate them
-                    log_info("> %lld == %lld + %lld", next_r->offset, r->offset, aggregated_size);
-
-                    if (next_r->offset == r->offset + aggregated_size) {
-                        // Determine the aggregated request size
-                        aggregated_size += next_r->size;
-
-                        log_info("---> AGGREGATE (%ld + %ld) size = %ld!", r->id, next_r->id, aggregated_size);
-                        
-                        // Make sure we know which requests we aggregated so that we can reply to their clients
-                        aggregated[aggregated_count++] = next_r->id;
-                    } else {
-                        // We need to make the request to the file system and reply to the client
-                        log_info("aggregated_count = %ld", aggregated_count);
-
-                        // Allocate a buffer large enough for the request
-                        aggregated_buffer = calloc(aggregated_size, sizeof(char));
-                        
-                        // Issue the large aggregated request
-                        int rc = pread(r->file_handle, aggregated_buffer, aggregated_size, r->offset);
-
-                        if (rc != aggregated_size) {
-                            int err = errno;
-                            char message[3000];
-                            explain_message_errno_pread(message, sizeof(message), err, r->file_handle, r->buffer,
-                            r->size, r->offset);
-                            log_error("---> %s\n", message);
-
-                            log_error("r->filehandle = %ld, r->size = %ld, r->offset = %ld", r->file_handle, r->size, r->offset);
-                            log_error("single read %d of expected %d", rc, aggregated_size);
-                            MPI_Abort(MPI_COMM_WORLD, ERROR_READ_FAILED);
-                        }
-
-                        unsigned long int offset = 0;
-
-                        // Iterate over the aggregated request, and reply to their clients
-                        for (int i = 0; i < aggregated_count; i++) {
-                            // Get and remove the request from the list    
-                            log_info("aggregated[%d/%d] = %ld", i + 1, aggregated_count, aggregated[i]);
-
-                            pthread_mutex_lock(&requests_lock);
-                            HASH_FIND_INT(requests, &aggregated[i], current_r);
-
-                            if (current_r == NULL) {
-                                log_error("5. unable to find the request %lld", aggregated[i]);
-                            }
-                            HASH_DEL(requests, current_r);
-                            pthread_mutex_unlock(&requests_lock);
-
-                            MPI_Send(&aggregated_buffer[offset], current_r->size, MPI_CHAR, current_r->rank, TAG_BUFFER, MPI_COMM_WORLD);
-
-                            // Release the AGIOS request
-                            sprintf(fh_str, "%015d", current_r->file_handle);
-
-                            agios_release_request(fh_str, current_r->operation, current_r->size, current_r->offset, 0, current_r->size); // 0 is a sub-request
-
-                            // Update to the next offset
-                            offset += current_r->size;
-
-                            #ifdef DEBUG
-                            safe_free(tmp, "server_dispatcher::tmp");
-                            #endif
-
-                            // Free the request (not the buffer as it was not allocated)
-                            safe_free(current_r, "server_dispatcher::next_r");
-                        }
-
-                        // Update the start of the next requests with the last pending one
-                        r = next_r;
-
-                        break;
-                    }
-                }
-
-                // If no aggregation is possible, issue the operation, and set the pending request as the new base
-                log_trace("standalone request");
-
-                r->buffer = calloc(r->size, sizeof(char));
-
-                // No aggregations can be done, just send the request without any further overhead
-                int rc = pread(r->file_handle, r->buffer, r->size, r->offset);
-
-                if (rc != r->size) {
-                    int err = errno;
-                    char message[3000];
-                    explain_message_errno_pread(message, sizeof(message), err, r->file_handle, r->buffer,
-                    r->size, r->offset);
-                    log_error("---> %s\n", message);
-
-                    log_error("r->filehandle = %ld, r->size = %ld, r->offset = %ld", r->file_handle, r->size, r->offset);
-                    log_error("single read %d of expected %d", rc, aggregated_size);
-                    MPI_Abort(MPI_COMM_WORLD, ERROR_READ_FAILED);
+                    log_trace("> %lld == %lld + %lld", next_r->offset, r->offset, aggregated_size);
+                } else {
+                    last_request = 1;
                 }
                 
-                MPI_Send(r->buffer, r->size, MPI_CHAR, r->rank, TAG_BUFFER, MPI_COMM_WORLD);
+                if (next != NULL && aggregated_count < MAXIMUM_BATCH_SIZE && next_r->offset == r->offset + aggregated_size) {
+                    // Determine the aggregated request size
+                    aggregated_size += next_r->size;
 
-                // Release the AGIOS request
-                sprintf(fh_str, "%015d", r->file_handle);
+                    log_debug("---> AGGREGATE (%ld + %ld) [size = %ld, offset = %ld] aggregated_size = %ld!", r->id, next_r->id, next_r->size, next_r->offset, aggregated_size);
+                    
+                    // Make sure we know which requests we aggregated so that we can reply to their clients
+                    aggregated[aggregated_count] = next_r->id;
+                    aggregated_sizes[aggregated_count] = next_r->size;
+                    aggregated_offsets[aggregated_count] = next_r->offset;
+                    aggregated_count++;
+                } else {
+                    // We need to make the request to the file system and reply to the client
+                    log_debug("aggregated_count = %ld", aggregated_count);
 
-                agios_release_request(fh_str, r->operation, r->size, r->offset, 0, r->size); // 0 is a sub-request
+                    // Allocate a buffer large enough for the request
+                    aggregated_buffer = calloc(aggregated_size, sizeof(char));
+                    
+                    // Issue the large aggregated request
+                    int rc = pread(r->file_handle, aggregated_buffer, aggregated_size, r->offset);
 
-                pthread_mutex_lock(&requests_lock);
-                HASH_DEL(requests, r);
-                pthread_mutex_unlock(&requests_lock);
+                    if (rc != aggregated_size) {
+                        #ifdef EXPLAIN
+                        int err = errno;
+                        char message[3000];
+                        explain_message_errno_pread(message, sizeof(message), err, r->file_handle, r->buffer,
+                        r->size, r->offset);
+                        log_error("---> %s\n", message);
+                        #endif
 
-                // Free the request
-                safe_free(r->buffer, "server_dispatcher::READ::r->buffer");
-                safe_free(r, "server_dispatcher::READ::r");
+                        log_error("r->filehandle = %ld, r->size = %ld, r->offset = %ld", r->file_handle, r->size, r->offset);
+                        log_error("single read %d of expected %d", rc, aggregated_size);
+                        MPI_Abort(MPI_COMM_WORLD, ERROR_READ_FAILED);
+                    }            
+
+                    unsigned long int offset = 0;
+
+                    // Iterate over the aggregated request, and reply to their clients
+                    for (int i = 0; i < aggregated_count; i++) {
+                        // Get and remove the request from the list    
+                        log_debug("aggregated[%d/%d] = %ld", i + 1, aggregated_count, aggregated[i]);
+
+                        pthread_mutex_lock(&requests_lock);
+                        HASH_FIND_INT(requests, &aggregated[i], current_r);
+
+                        if (current_r == NULL) {
+                            log_error("5. unable to find the request %lld", aggregated[i]);
+                        }
+                        HASH_DEL(requests, current_r);
+                        pthread_mutex_unlock(&requests_lock);
+                        
+                        #ifdef DEBUG
+                        log_trace("AGGREGATED={%s}", aggregated_buffer);
+                        
+                        char *tmp;
+                        tmp = calloc(current_r->size, sizeof(char));
+
+                        memcpy(tmp, &aggregated_buffer[offset], current_r->size * sizeof(char));
+
+                        log_debug("rank = %ld, request = %ld, buffer = %s, offset = %ld (real = %ld), size = %ld", current_r->rank, current_r->id, tmp, offset, current_r->offset, current_r->size);
+                        #endif
+
+                        MPI_Send(&aggregated_buffer[offset], current_r->size, MPI_CHAR, current_r->rank, TAG_BUFFER, MPI_COMM_WORLD);
+
+                        #ifdef DEBUG
+                        safe_free(tmp, "server_dispatcher::tmp");
+                        #endif
+
+                        // Release the AGIOS request
+                        sprintf(fh_str, "%015d", current_r->file_handle);
+
+                        agios_release_request(fh_str, current_r->operation, current_r->size, current_r->offset, 0, current_r->size); // 0 is a sub-request
+
+                        // Update to the next offset
+                        offset += current_r->size;
+
+                        // Free the request (not the buffer as it was not allocated)
+                        safe_free(current_r, "server_dispatcher::current_r");
+                    }
+
+                    if (last_request) {
+                        break;
+                    }
+
+                    r = next_r;
+
+                    // Reset the aggregation count and add the pending request
+                    aggregated_count = 0;
+                    aggregated[aggregated_count] = r->id;
+                    aggregated_sizes[aggregated_count] = r->size;
+                    aggregated_offsets[aggregated_count] = r->offset;
+                    aggregated_size = r->size;
+                    aggregated_count++;                      
+                }
             }
-            /*
-
-            pthread_mutex_lock(&requests_lock);
-            HASH_DEL(requests, r);
-            pthread_mutex_unlock(&requests_lock);
-            
-            // Allocate the buffer
-            r->buffer = calloc(r->size, sizeof(char));
-
-            int rc = pread(r->file_handle, r->buffer, r->size, r->offset);
-            // https://stackoverflow.com/questions/32683086/handling-incomplete-write-calls
-            // https://www.systutorials.com/docs/linux/man/3p-pwrite/
-
-            if (rc != r->size) {
-                int err = errno;
-                char message[3000];
-                explain_message_errno_pread(message, sizeof(message), err, r->file_handle, r->buffer,
-                r->size, r->offset);
-                log_error("---> %s\n", message);
-
-                log_error("r->filehandle = %ld, r->size = %ld, r->offset = %ld", r->file_handle, r->size, r->offset);
-                log_error("single read %d of expected %d", rc, aggregated_size);
-                MPI_Abort(MPI_COMM_WORLD, ERROR_READ_FAILED);
-            }
-
-            MPI_Send(r->buffer, r->size, MPI_CHAR, r->rank, TAG_BUFFER, MPI_COMM_WORLD);
-
-            // Release the AGIOS request
-            sprintf(fh_str, "%015d", r->file_handle);
-
-            agios_release_request(fh_str, r->operation, r->size, r->offset, 0, r->size); // 0 is a sub-reques
-
-            // Free the request   
-            safe_free(r->buffer, "server_dispatcher::r->buffer");
-            safe_free(r, "server_dispatcher::r");
-            */
         }
 
         // We need to signal the processing thread to proceed and check for shutdown
@@ -904,10 +872,17 @@ int main(int argc, char *argv[]) {
 
     MPI_Status status;
 
+    if (argc != 3) {
+        printf("\nFORGE - I/O Forwarding Emulator\n");
+        printf("Usage: ./forge <configuration.json> <emulation.log>\n");
+
+        return 0;
+    }
+
     // Open log file
     FILE *log_file;
 
-    log_file = fopen("emulator.log", "a+");
+    log_file = fopen(argv[2], "a+");
 
     // Define the log file to be used
     log_set_fp(log_file);
@@ -917,12 +892,6 @@ int main(int argc, char *argv[]) {
     #ifdef DEBUG
     log_set_level(LOG_TRACE);
     #endif
-
-    if (argc != 2) {
-        printf("Usage: ./fwd-sim <simulation.json>\n");
-
-        return 0;
-    }
 
     char *buffer = calloc(MAXIMUM_REQUEST_SIZE, sizeof(char));
 
@@ -1491,8 +1460,6 @@ int main(int argc, char *argv[]) {
             log_debug("ACK received [id=%d], sending buffer...", request_id);
 
             int send_status;
-
-            log_debug("++++++++++++++++++++++++++++++SENDING BUFFER = {%s}", buffer);
 
             // We need to wait for the WRITE request to return before issuing another request
             send_status = MPI_Send(buffer, r->size, MPI_CHAR, my_forwarding_server, request_id, MPI_COMM_WORLD);

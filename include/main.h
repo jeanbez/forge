@@ -64,8 +64,9 @@
 #define ERROR_INVALID_FILE_HANDLE 70013
 #define ERROR_FAILED_TO_CLOSE 70014
 #define ERROR_INVALID_VALIDATION 70015
-#define ERROR_PVFS_OPEN 700016
-#define ERROR_VALIDATION_FAILED 700017
+#define ERROR_POSIX_OPEN 700016
+#define ERROR_PVFS_OPEN 700017
+#define ERROR_VALIDATION_FAILED 700018
 
 struct request {
 	char file_name[255];
@@ -113,7 +114,7 @@ struct opened_handles {
 	//pvfs2_file_object pvfs_file;
 
 	UT_hash_handle hh;
-	UT_hash_handle hh_pvfs;
+	//UT_hash_handle hh_pvfs;
 };
 
 // Structure to store statistics of requests in each forwarding
