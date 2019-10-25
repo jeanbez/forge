@@ -5,7 +5,7 @@ variables:
   BUILD_PATH: "${CI_PROJECT_DIR}/forge/build"
   INSTALL_PATH: "${CI_PROJECT_DIR}/forge/install"
 
-image: forge/forge:forge_debian
+image: jeanbez/forge
 
 compile FORGE:
   stage: build
