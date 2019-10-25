@@ -4,6 +4,8 @@
 #include "pvfs2.h"
 #include "pvfs2-hint.h"
 
+#define PVFS 1
+
 static PVFS_hint hints;
 
 typedef struct pvfs2_file_object_s {
@@ -20,9 +22,18 @@ enum open_type {
     OPEN_DEST
 };
 
-void make_attribs(PVFS_sys_attr *attr, PVFS_credentials *credentials,
-                  int nr_datafiles, int mode);
+void make_attribs(
+    PVFS_sys_attr *attr,
+    PVFS_credentials *credentials,
+    int nr_datafiles,
+    int mode
+);
 
-int generic_open(pvfs2_file_object *obj, PVFS_credentials *credentials,
-                        int nr_datafiles, PVFS_size strip_size, 
-                        char *srcname, int open_type);
+int generic_open(
+    pvfs2_file_object *obj,
+    PVFS_credentials *credentials,
+    int nr_datafiles,
+    PVFS_size strip_size,
+    char *srcname,
+    int open_type
+);
