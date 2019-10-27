@@ -3,7 +3,7 @@
     "handlers": 16,
     "dispatchers": 16,
     "path": "file",
-    "number_of_files": "file-per-process",
+    "number_of_files": "individual",
     "spatiality": "contiguous",
     "total_size": 134217728,
     "request_size": 32768,
