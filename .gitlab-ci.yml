@@ -25,9 +25,10 @@ compile FORGE:
 test file-per-process:
   stage: test
   script:
-    - cp agios/* ${TEMPORARY_PATH}
     - mkdir -p "${LOG_PATH}"
-    - mkdir -p "${TEMPORARY_PATH}" && cd ${TEMPORARY_PATH}
+    - mkdir -p "${TEMPORARY_PATH}"
+    - cp agios/* "${TEMPORARY_PATH}"
+    - cd "${TEMPORARY_PATH}"
     - mpirun --allow-run-as-root --oversubscribe --np 9 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/file-per-process.json ${CI_PROJECT_DIR}/logs/file-per-process.log
   artifacts:
     paths:
