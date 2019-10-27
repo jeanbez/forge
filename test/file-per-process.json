@@ -2,7 +2,7 @@
     "forwarders": 1,
     "handlers": 16,
     "dispatchers": 16,
-    "path": "/tmp/file",
+    "path": "file",
     "number_of_files": "individual",
     "spatiality": "contiguous",
     "total_size": 134217728,
