@@ -63,3 +63,5 @@ if(PVFS)
 endif(PVFS)
 
 target_link_libraries(${PROJECT_NAME} ${MPI_LIBRARIES})
+
+install(TARGETS forge DESTINATION bin)
