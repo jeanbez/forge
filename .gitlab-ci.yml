@@ -6,8 +6,8 @@ variables:
   BUILD_PATH: "${CI_PROJECT_DIR}/forge/build"
   INSTALL_PATH: "${CI_PROJECT_DIR}/forge/install"
   LOG_PATH: "${CI_PROJECT_DIR}/logs"
-  TESTS_PATH:  "${CI_PROJECT_DIR}/test"
-  TEMPORARY_PATH:  "${CI_PROJECT_DIR}/tmp"
+  TESTS_PATH: "${CI_PROJECT_DIR}/test"
+  TEMPORARY_PATH: "${CI_PROJECT_DIR}/tmp"
 
 image: jeanbez/forge
 
@@ -33,7 +33,7 @@ test file-per-process:
   artifacts:
     paths:
      - "${LOG_PATH}"
-     - "${TESTS_PATH}/file-per-process.json.map$
-     - "${TESTS_PATH}/file-per-process.json.time$
-     - "${TESTS_PATH}/file-per-process.json.0.stats$
+     - "${TESTS_PATH}/file-per-process.json.map"
+     - "${TESTS_PATH}/file-per-process.json.time"
+     - "${TESTS_PATH}/file-per-process.json.0.stats"
 
