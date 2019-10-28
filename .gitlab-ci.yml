@@ -38,3 +38,35 @@ test file-per-process:
      - "${TESTS_PATH}/file-per-process.json.time"
      - "${TESTS_PATH}/file-per-process.json.0.stats"
 
+test shared-file-contiguous:
+  stage: test
+  script:
+    - mkdir -p "${LOG_PATH}"
+    - mkdir -p "${TEMPORARY_PATH}"
+    - cp agios/* /tmp/
+    - cd "${TEMPORARY_PATH}"
+    - export OMPI_MCA_btl_vader_single_copy_mechanism=none
+    - mpirun --allow-run-as-root --oversubscribe --np 9 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/shared-file-contiguous.json ${CI_PROJECT_DIR}/logs/shared-file-contiguous.log
+  artifacts:
+    paths:
+     - "${LOG_PATH}"
+     - "${TESTS_PATH}/shared-file-contiguous.json.map"
+     - "${TESTS_PATH}/shared-file-contiguous.json.time"
+     - "${TESTS_PATH}/shared-file-contiguous.json.0.stats"
+
+test shared-file-strided:
+  stage: test
+  script:
+    - mkdir -p "${LOG_PATH}"
+    - mkdir -p "${TEMPORARY_PATH}"
+    - cp agios/* /tmp/
+    - cd "${TEMPORARY_PATH}"
+    - export OMPI_MCA_btl_vader_single_copy_mechanism=none
+    - mpirun --allow-run-as-root --oversubscribe --np 9 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/shared-file-strided.json ${CI_PROJECT_DIR}/logs/shared-file-strided.log
+  artifacts:
+    paths:
+     - "${LOG_PATH}"
+     - "${TESTS_PATH}/shared-file-strided.json.map"
+     - "${TESTS_PATH}/shared-file-strided.json.time"
+     - "${TESTS_PATH}/shared-file-strided.json.0.stats"
+
