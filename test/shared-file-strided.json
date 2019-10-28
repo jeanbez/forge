@@ -7,5 +7,5 @@
     "spatiality": "strided",
     "total_size": 134217728,
     "request_size": 32768,
-    "validation": 0
+    "validation": 1
 }
