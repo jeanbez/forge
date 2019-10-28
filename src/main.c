@@ -2,6 +2,8 @@
 #include "utils.h"
 #include "log.h"
 
+#define EXPLAIN 1
+
 #ifdef EXPLAIN
 #include <libexplain/pread.h>
 #include <libexplain/pwrite.h>

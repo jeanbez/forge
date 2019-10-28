@@ -33,4 +33,7 @@ test file-per-process:
   artifacts:
     paths:
      - "${LOG_PATH}"
+     - "${TESTS_PATH}/file-per-process.json.map$
+     - "${TESTS_PATH}/file-per-process.json.time$
+     - "${TESTS_PATH}/file-per-process.json.0.stats$
 
