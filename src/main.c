@@ -24,6 +24,10 @@ struct client agios_client;
 unsigned long long int global_id = 1000000;
 pthread_mutex_t global_id_lock;
 
+/**
+ * Generate an unique identifier for the requests.
+ * @return Unique ID for the request.
+ */
 unsigned long long int generate_identifier() {
     pthread_mutex_lock(&global_id_lock);
     global_id++;
@@ -57,6 +61,10 @@ pthread_cond_t ready_queue_signal;
 struct ready_request *tmp;
 #endif
 
+/**
+ * AGIOS callback function to put a single request in the ready queue.
+ * @param The request ID.
+ */
 void callback(unsigned long long int id) {
     log_trace("AGIOS_CALLBACK: %ld", id);
 
@@ -85,6 +93,11 @@ void callback(unsigned long long int id) {
     pthread_cond_signal(&ready_queue_signal);
 }
 
+/**
+ * AGIOS callback function to put multiple requests in the ready queue.
+ * @param A lista of requests.
+ * @param The total number of requests.
+ */
 void callback_aggregated(unsigned long long int *ids, int total) {
     int i;
 
@@ -509,7 +522,7 @@ void *server_listener(void *p) {
 }
 
 void *server_dispatcher(void *p) {
-    int request_id, next_request_id;
+    int request_id, next_request_id, last_request;
 
     int ack = 1;
     struct forwarding_request *r;
@@ -524,10 +537,12 @@ void *server_dispatcher(void *p) {
     char fh_str[255];
 
     char *aggregated_buffer;
+    char *aggregated_write_buffer;
 
     int aggregated_count = 0;
     unsigned long int aggregated[MAXIMUM_BATCH_SIZE];
     unsigned long int aggregated_size = 0;
+    unsigned long int aggregated_offset = 0;
     int32_t aggregated_sizes[MAXIMUM_BATCH_SIZE];
     int64_t aggregated_offsets[MAXIMUM_BATCH_SIZE];
 
@@ -536,6 +551,8 @@ void *server_dispatcher(void *p) {
     timeout.tv_sec += TIMEOUT;
 
     pqueue_t *pq;
+
+    aggregated_write_buffer = calloc(MAXIMUN_AGGREGATED_BUFFER_SIZE, sizeof(char));
 
     // Initialize the priority queue for the dispatcher
     pq = pqueue_init(MAXIMUM_QUEUE_ELEMENTS, compare_priority, get_priority, set_priority, get_position, set_position);
@@ -557,6 +574,9 @@ void *server_dispatcher(void *p) {
                 pthread_cond_signal(&incoming_queue_signal);
 
                 pqueue_free(pq);
+
+                // Only at the end we can remove the buffer
+                free(aggregated_write_buffer);
 
                 return NULL;
             }
@@ -607,40 +627,199 @@ void *server_dispatcher(void *p) {
 
         // Issue the request to the filesystem
         if (r->operation == WRITE) {
-            pthread_mutex_lock(&requests_lock);
-            HASH_DEL(requests, r);
-            pthread_mutex_unlock(&requests_lock);
+            // Start by locking the queue mutex
+            pthread_mutex_lock(&ready_queue_mutex);
 
-            int rc = pwrite(r->file_handle, r->buffer, r->size, r->offset);
-            // https://stackoverflow.com/questions/32683086/handling-incomplete-write-calls
-            // https://www.systutorials.com/docs/linux/man/3p-pwrite/
+            // Insert the first request in the priority queue
+            node_t *pq_item = malloc(sizeof(node_t));
 
-            if (rc != r->size) {
-                log_error("write %d of expected %d", rc, r->size);
+            pq_item->priority = -r->offset;
+            pq_item->value = r->id;
 
-                #ifdef EXPLAIN
-                int err = errno;
-                char message[3000];
-                explain_message_errno_pwrite(message, sizeof(message), err, r->file_handle, r->buffer, r->size, r->offset);
-                log_error("---> %s\n", message);
-                #endif
+            pqueue_insert(pq, pq_item);
 
-                log_error("r->filehandle = %ld, r->size = %ld, r->offset = %ld", r->file_handle, r->size, r->offset);
+            fwd_list_for_each_entry_safe(next_ready_r, tmp, &ready_queue, list) {
+                // Fetch the next request ID
+                next_request_id = next_ready_r->id;
+
+                // Get the request
+                pthread_mutex_lock(&requests_lock);
+                HASH_FIND_INT(requests, &next_request_id, next_r);
                 
-                MPI_Abort(MPI_COMM_WORLD, ERROR_WRITE_FAILED);
+                if (next_r == NULL) {
+                    log_error("2. unable to find the request");
+                }
+                pthread_mutex_unlock(&requests_lock);
+
+                // Check if it is for the same filehandle
+                if (r->operation == next_r->operation && r->file_handle == next_r->file_handle) {
+                    node_t *pq_item = malloc(sizeof(node_t));
+
+                    pq_item->priority = -next_r->offset;
+                    pq_item->value = next_r->id;
+                    
+                    pqueue_insert(pq, pq_item);
+                    
+                    // Remove the request form the list
+                    fwd_list_del(&next_ready_r->list);
+
+                    safe_free(next_ready_r, "server_dispatcher::005");
+                } else {
+                    // Requests are not contiguous to the same filehandle
+                    break;
+                }    
             }
 
-            // Send ACK to the client to indicate the operation was completed
-            MPI_Send(&ack, 1, MPI_INT, r->rank, TAG_ACK, MPI_COMM_WORLD); 
+            // Unlock the queue mutex
+            pthread_mutex_unlock(&ready_queue_mutex);
+            
+            #ifdef DEBUG
+            pqueue_print(pq, stdout, print_node);
+            #endif
 
-            // Release the AGIOS request
-            sprintf(fh_str, "%015d", r->file_handle);
+            log_debug("items in possible aggregation queue: %d", pqueue_size(pq));
 
-            agios_release_request(fh_str, r->operation, r->size, r->offset, 0, r->size); // 0 is a sub-request
+            node_t *next = malloc(sizeof(node_t));
 
-            // Free the request   
-            safe_free(r->buffer, "server_dispatcher::r->buffer");
-            safe_free(r, "server_dispatcher::r");
+            // Make all the possible aggregations
+
+            // Get the first request form the priority queue to serve as a base for aggregations
+            next = pqueue_pop(pq);
+
+            // We need to get the request to be our start
+            pthread_mutex_lock(&requests_lock);
+            log_trace("next->priority = %d, next->value = %d", next->priority, next->value);
+            HASH_FIND_INT(requests, &next->value, r);
+
+            if (r == NULL) {
+                log_error("3. unable to find the request");
+            };
+            pthread_mutex_unlock(&requests_lock);
+
+            log_trace("r->id = %ld, r->offset = %ld, r->size = %ld", r->id, r->offset, r->size);
+
+            free(next);
+
+            // We need to check if we have contiguous request to the same file handle, to aggregate them
+            aggregated_count = 0;
+            aggregated[aggregated_count] = r->id;
+            aggregated_sizes[aggregated_count] = r->size;
+            aggregated_offsets[aggregated_count] = r->offset;
+            aggregated_size = r->size;
+            aggregated_offset = 0;
+            aggregated_count++;
+
+            // Copy the write request to the buffer
+            memcpy(&aggregated_write_buffer[aggregated_offset], r->buffer, r->size);
+            aggregated_offset += r->size;
+            
+            last_request = 0;
+
+            // We iterate the aggreation queue (which is local to every process) and merge the requests
+            while (1) {
+                next = pqueue_pop(pq);
+
+                if (next != NULL) {
+                    // We need to get the next request according to the priority
+                    pthread_mutex_lock(&requests_lock);
+                    HASH_FIND_INT(requests, &next->value, next_r);
+
+                    if (next_r == NULL) {
+                        log_error("4. unable to find the request %lld", next->value);
+                    };
+                    pthread_mutex_unlock(&requests_lock);
+
+                    free(next);
+                    
+                    // See if we can actually aggregate them
+                    log_trace("> %lld == %lld + %lld", next_r->offset, r->offset, aggregated_size);
+                } else {
+                    last_request = 1;
+                }
+                
+                if (next != NULL && aggregated_count < MAXIMUM_BATCH_SIZE && next_r->offset == r->offset + aggregated_size) {
+                    // Determine the aggregated request size
+                    aggregated_size += next_r->size;
+
+                    log_debug("---> AGGREGATE (%ld + %ld) [size = %ld, offset = %ld] aggregated_size = %ld!", r->id, next_r->id, next_r->size, next_r->offset, aggregated_size);
+                    
+                    // Make sure we know which requests we aggregated so that we can reply to their clients
+                    aggregated[aggregated_count] = next_r->id;
+                    aggregated_sizes[aggregated_count] = next_r->size;
+                    aggregated_offsets[aggregated_count] = next_r->offset;
+                    aggregated_count++;
+
+                    // Copy the write request to the buffer
+                    memcpy(&aggregated_write_buffer[aggregated_offset], next_r->buffer, next_r->size);
+                    aggregated_offset += next_r->size;
+                } else {
+                    // We need to make the request to the file system and reply to the client
+                    log_debug("aggregated_count = %ld", aggregated_count);
+
+                    // Issue the large aggregated request
+                    int rc = pwrite(r->file_handle, aggregated_write_buffer, aggregated_size, r->offset);
+
+                    if (rc != aggregated_size) {
+                        #ifdef EXPLAIN
+                        int err = errno;
+                        char message[3000];
+                        explain_message_errno_pwrite(message, sizeof(message), err, r->file_handle, r->buffer,
+                        r->size, r->offset);
+                        log_error("---> %s\n", message);
+                        #endif
+
+                        log_error("r->filehandle = %ld, r->size = %ld, r->offset = %ld", r->file_handle, r->size, r->offset);
+                        log_error("single write %d of expected %d", rc, aggregated_size);
+                        MPI_Abort(MPI_COMM_WORLD, ERROR_WRITE_FAILED);
+                    }            
+
+                    unsigned long int offset = 0;
+
+                    // Iterate over the aggregated request, and reply to their clients
+                    for (int i = 0; i < aggregated_count; i++) {
+                        // Get and remove the request from the list    
+                        log_debug("aggregated[%d/%d] = %ld", i + 1, aggregated_count, aggregated[i]);
+
+                        pthread_mutex_lock(&requests_lock);
+                        HASH_FIND_INT(requests, &aggregated[i], current_r);
+
+                        if (current_r == NULL) {
+                            log_error("5. unable to find the request %lld", aggregated[i]);
+                        }
+                        HASH_DEL(requests, current_r);
+                        pthread_mutex_unlock(&requests_lock);
+
+                        MPI_Send(&ack, 1, MPI_INT, current_r->rank, TAG_ACK, MPI_COMM_WORLD); 
+
+                        // Release the AGIOS request
+                        sprintf(fh_str, "%015d", current_r->file_handle);
+
+                        agios_release_request(fh_str, current_r->operation, current_r->size, current_r->offset, 0, current_r->size); // 0 is a sub-request
+
+                        // Free the request (not the buffer as it was not allocated)
+                        safe_free(current_r, "server_dispatcher::current_r");
+                    }
+
+                    if (last_request) {
+                        break;
+                    }
+
+                    r = next_r;
+
+                    // Reset the aggregation count and add the pending request
+                    aggregated_count = 0;
+                    aggregated[aggregated_count] = r->id;
+                    aggregated_sizes[aggregated_count] = r->size;
+                    aggregated_offsets[aggregated_count] = r->offset;
+                    aggregated_size = r->size;
+                    aggregated_offset = 0;
+                    aggregated_count++;
+
+                    // Copy the write request to the buffer
+                    memcpy(&aggregated_write_buffer[aggregated_offset], r->buffer, r->size);
+                    aggregated_offset += r->size;
+                }
+            }
         } else if (r->operation == READ) {
             // Start by locking the queue mutex
             pthread_mutex_lock(&ready_queue_mutex);
@@ -723,7 +902,7 @@ void *server_dispatcher(void *p) {
             aggregated_size = r->size;
             aggregated_count++;
 
-            int last_request = 0;
+            last_request = 0;
 
             // We iterate the aggreation queue (which is local to every process) and merge the requests
             while (1) {
@@ -839,7 +1018,7 @@ void *server_dispatcher(void *p) {
                     aggregated_sizes[aggregated_count] = r->size;
                     aggregated_offsets[aggregated_count] = r->offset;
                     aggregated_size = r->size;
-                    aggregated_count++;                      
+                    aggregated_count++;
                 }
             }
         }
