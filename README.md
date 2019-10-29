@@ -103,11 +103,11 @@ grisou-19.nancy.grid5000.fr:4
 grisou-20.nancy.grid5000.fr:4
 ```
 
-Once you have the configuration file prepared, you can launch the emulator. However, notice that you need to start additional `forwarders` MPI processes. For instance, if you want to emulate 128 clients and 4 forwarders, you need to use `--op 132`. The first `forwarders` MPI processes will be placed in separate nodes (one per node if you `hostfile` was correctly defined). The remainder of the process will be allocated to other compute nodes.
+Once you have the configuration file prepared, you can launch the emulator. However, notice that you need to start additional `forwarders` MPI processes. For instance, if you want to emulate 128 clients and 4 forwarders, you need to use `--op 132`. The first `forwarders` MPI processes will be placed in separate nodes (one per node if your `hostfile` was correctly defined). The remainder of the process will be allocated to other compute nodes.
 
 ## Statistics
 
-The emulator will generate a couple of files. The `.map` file will detailed the mapping of the processes (forwarding servers and clients).
+The emulator will generate a couple of files. The `.map` file will detail the mapping of the processes (forwarding servers and clients).
 
 ```
 rank 0: server
