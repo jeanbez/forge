@@ -1,8 +1,0 @@
-forwarder: 0
-open: 18
-read: 999
-write: 999
-close: 18
-read_size: 9990
-write_size: 9990
-

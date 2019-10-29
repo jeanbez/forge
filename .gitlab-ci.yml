@@ -22,7 +22,7 @@ compile FORGE:
     paths:
      - ${INSTALL_PATH}
 
-test file-per-process:
+one-forwarder file-per-process:
   stage: test
   script:
     - mkdir -p "${LOG_PATH}"
@@ -30,15 +30,15 @@ test file-per-process:
     - cp agios/* /tmp/
     - cd "${TEMPORARY_PATH}"
     - export OMPI_MCA_btl_vader_single_copy_mechanism=none
-    - mpirun --allow-run-as-root --oversubscribe --np 9 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/file-per-process.json ${CI_PROJECT_DIR}/logs/file-per-process.log
+    - mpirun --allow-run-as-root --oversubscribe --np 9 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/one-forwarder/file-per-process.json ${CI_PROJECT_DIR}/logs/file-per-process.log
   artifacts:
     paths:
      - "${LOG_PATH}"
-     - "${TESTS_PATH}/file-per-process.json.map"
-     - "${TESTS_PATH}/file-per-process.json.time"
-     - "${TESTS_PATH}/file-per-process.json.0.stats"
+     - "${TESTS_PATH}/one-forwarder/file-per-process.json.map"
+     - "${TESTS_PATH}/one-forwarder/file-per-process.json.time"
+     - "${TESTS_PATH}/one-forwarder/file-per-process.json.0.stats"
 
-test shared-file-contiguous:
+one-forwarder shared-file-contiguous:
   stage: test
   script:
     - mkdir -p "${LOG_PATH}"
@@ -46,15 +46,15 @@ test shared-file-contiguous:
     - cp agios/* /tmp/
     - cd "${TEMPORARY_PATH}"
     - export OMPI_MCA_btl_vader_single_copy_mechanism=none
-    - mpirun --allow-run-as-root --oversubscribe --np 9 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/shared-file-contiguous.json ${CI_PROJECT_DIR}/logs/shared-file-contiguous.log
+    - mpirun --allow-run-as-root --oversubscribe --np 9 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/one-forwarder/shared-file-contiguous.json ${CI_PROJECT_DIR}/logs/shared-file-contiguous.log
   artifacts:
     paths:
      - "${LOG_PATH}"
-     - "${TESTS_PATH}/shared-file-contiguous.json.map"
-     - "${TESTS_PATH}/shared-file-contiguous.json.time"
-     - "${TESTS_PATH}/shared-file-contiguous.json.0.stats"
+     - "${TESTS_PATH}/one-forwarder/shared-file-contiguous.json.map"
+     - "${TESTS_PATH}/one-forwarder/shared-file-contiguous.json.time"
+     - "${TESTS_PATH}/one-forwarder/shared-file-contiguous.json.0.stats"
 
-test shared-file-strided:
+one-forwarder shared-file-strided:
   stage: test
   script:
     - mkdir -p "${LOG_PATH}"
@@ -62,11 +62,108 @@ test shared-file-strided:
     - cp agios/* /tmp/
     - cd "${TEMPORARY_PATH}"
     - export OMPI_MCA_btl_vader_single_copy_mechanism=none
-    - mpirun --allow-run-as-root --oversubscribe --np 9 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/shared-file-strided.json ${CI_PROJECT_DIR}/logs/shared-file-strided.log
+    - mpirun --allow-run-as-root --oversubscribe --np 9 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/one-forwarder/shared-file-strided.json ${CI_PROJECT_DIR}/logs/shared-file-strided.log
   artifacts:
     paths:
      - "${LOG_PATH}"
-     - "${TESTS_PATH}/shared-file-strided.json.map"
-     - "${TESTS_PATH}/shared-file-strided.json.time"
-     - "${TESTS_PATH}/shared-file-strided.json.0.stats"
+     - "${TESTS_PATH}/one-forwarder/shared-file-strided.json.map"
+     - "${TESTS_PATH}/one-forwarder/shared-file-strided.json.time"
+     - "${TESTS_PATH}/one-forwarder/shared-file-strided.json.0.stats"
+
+two-forwarders file-per-process:
+  stage: test
+  script:
+    - mkdir -p "${LOG_PATH}"
+    - mkdir -p "${TEMPORARY_PATH}"
+    - cp agios/* /tmp/
+    - cd "${TEMPORARY_PATH}"
+    - export OMPI_MCA_btl_vader_single_copy_mechanism=none
+    - mpirun --allow-run-as-root --oversubscribe --np 10 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/two-forwarders/file-per-process.json ${CI_PROJECT_DIR}/logs/file-per-process.log
+  artifacts:
+    paths:
+     - "${LOG_PATH}"
+     - "${TESTS_PATH}/two-forwarders/file-per-process.json.map"
+     - "${TESTS_PATH}/two-forwarders/file-per-process.json.time"
+     - "${TESTS_PATH}/two-forwarders/file-per-process.json.0.stats"
+
+two-forwarders shared-file-contiguous:
+  stage: test
+  script:
+    - mkdir -p "${LOG_PATH}"
+    - mkdir -p "${TEMPORARY_PATH}"
+    - cp agios/* /tmp/
+    - cd "${TEMPORARY_PATH}"
+    - export OMPI_MCA_btl_vader_single_copy_mechanism=none
+    - mpirun --allow-run-as-root --oversubscribe --np 10 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/two-forwarders/shared-file-contiguous.json ${CI_PROJECT_DIR}/logs/shared-file-contiguous.log
+  artifacts:
+    paths:
+     - "${LOG_PATH}"
+     - "${TESTS_PATH}/two-forwarders/shared-file-contiguous.json.map"
+     - "${TESTS_PATH}/two-forwarders/shared-file-contiguous.json.time"
+     - "${TESTS_PATH}/two-forwarders/shared-file-contiguous.json.0.stats"
+
+two-forwarders shared-file-strided:
+  stage: test
+  script:
+    - mkdir -p "${LOG_PATH}"
+    - mkdir -p "${TEMPORARY_PATH}"
+    - cp agios/* /tmp/
+    - cd "${TEMPORARY_PATH}"
+    - export OMPI_MCA_btl_vader_single_copy_mechanism=none
+    - mpirun --allow-run-as-root --oversubscribe --np 10 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/two-forwarders/shared-file-strided.json ${CI_PROJECT_DIR}/logs/shared-file-strided.log
+  artifacts:
+    paths:
+     - "${LOG_PATH}"
+     - "${TESTS_PATH}/two-forwarders/shared-file-strided.json.map"
+     - "${TESTS_PATH}/two-forwarders/shared-file-strided.json.time"
+     - "${TESTS_PATH}/two-forwarders/shared-file-strided.json.0.stats"
+
+four-forwarders file-per-process:
+  stage: test
+  script:
+    - mkdir -p "${LOG_PATH}"
+    - mkdir -p "${TEMPORARY_PATH}"
+    - cp agios/* /tmp/
+    - cd "${TEMPORARY_PATH}"
+    - export OMPI_MCA_btl_vader_single_copy_mechanism=none
+    - mpirun --allow-run-as-root --oversubscribe --np 12 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/four-forwarders/file-per-process.json ${CI_PROJECT_DIR}/logs/file-per-process.log
+  artifacts:
+    paths:
+     - "${LOG_PATH}"
+     - "${TESTS_PATH}/four-forwarders/file-per-process.json.map"
+     - "${TESTS_PATH}/four-forwarders/file-per-process.json.time"
+     - "${TESTS_PATH}/four-forwarders/file-per-process.json.0.stats"
+
+four-forwarders shared-file-contiguous:
+  stage: test
+  script:
+    - mkdir -p "${LOG_PATH}"
+    - mkdir -p "${TEMPORARY_PATH}"
+    - cp agios/* /tmp/
+    - cd "${TEMPORARY_PATH}"
+    - export OMPI_MCA_btl_vader_single_copy_mechanism=none
+    - mpirun --allow-run-as-root --oversubscribe --np 12 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/four-forwarders/shared-file-contiguous.json ${CI_PROJECT_DIR}/logs/shared-file-contiguous.log
+  artifacts:
+    paths:
+     - "${LOG_PATH}"
+     - "${TESTS_PATH}/four-forwarders/shared-file-contiguous.json.map"
+     - "${TESTS_PATH}/four-forwarders/shared-file-contiguous.json.time"
+     - "${TESTS_PATH}/four-forwarders/shared-file-contiguous.json.0.stats"
+
+four-forwarders shared-file-strided:
+  stage: test
+  script:
+    - mkdir -p "${LOG_PATH}"
+    - mkdir -p "${TEMPORARY_PATH}"
+    - cp agios/* /tmp/
+    - cd "${TEMPORARY_PATH}"
+    - export OMPI_MCA_btl_vader_single_copy_mechanism=none
+    - mpirun --allow-run-as-root --oversubscribe --np 12 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/four-forwarders/shared-file-strided.json ${CI_PROJECT_DIR}/logs/shared-file-strided.log
+  artifacts:
+    paths:
+     - "${LOG_PATH}"
+     - "${TESTS_PATH}/four-forwarders/shared-file-strided.json.map"
+     - "${TESTS_PATH}/four-forwarders/shared-file-strided.json.time"
+     - "${TESTS_PATH}/four-forwarders/shared-file-strided.json.0.stats"
+
 
