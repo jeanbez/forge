@@ -4,6 +4,9 @@ project(forge)
 set(warnings "-Wall")
 set(CMAKE_C_FLAGS "-Wall")
 
+# Add the cmake folder so the FindSphinx module is found
+set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
+
 option(DEBUG "Enable debug messages for development purposes" OFF)
 option(PVFS "Enable the PVFS interface to send the requests" OFF)
 option(ORANGEFS "Enable the OrangeFS interface to send the requests" OFF)
@@ -46,6 +49,7 @@ else()
 		src/fwd_list.c
 		src/pqueue.c
 		src/utils.c
+		src/dispatcher/posix.c
 	)
 endif()
 
@@ -65,3 +69,7 @@ endif(PVFS)
 target_link_libraries(${PROJECT_NAME} ${MPI_LIBRARIES})
 
 install(TARGETS forge DESTINATION bin)
+
+#if (CMAKE_BUILD_TYPE MATCHES "^[Rr]elease")
+	add_subdirectory(docs)
+#endif()

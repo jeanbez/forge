@@ -1,11 +1,8 @@
+#include "forge.h"
 #include "main.h"
 #include "utils.h"
 #include "log.h"
-
-#ifdef EXPLAIN
-#include <libexplain/pread.h>
-#include <libexplain/pwrite.h>
-#endif
+#include "dispatcher/posix.h"
 
 const int MAX_STRING = 100;
 const int EMPTY = 0;
@@ -63,7 +60,7 @@ struct ready_request *tmp;
 
 /**
  * AGIOS callback function to put a single request in the ready queue.
- * @param The request ID.
+ * @param id The request ID.
  */
 void callback(unsigned long long int id) {
     log_trace("AGIOS_CALLBACK: %ld", id);
@@ -95,8 +92,8 @@ void callback(unsigned long long int id) {
 
 /**
  * AGIOS callback function to put multiple requests in the ready queue.
- * @param A lista of requests.
- * @param The total number of requests.
+ * @param *ids The list of requests.
+ * @param total The total number of requests.
  */
 void callback_aggregated(unsigned long long int *ids, int total) {
     int i;
@@ -128,12 +125,18 @@ void callback_aggregated(unsigned long long int *ids, int total) {
     pthread_cond_signal(&ready_queue_signal);
 }
 
+/**
+ * Stop the AGIOS scheduling library.
+ */
 void stop_AGIOS() {
     log_debug("stopping AGIOS scheduling library");
 
     agios_exit();
 }
 
+/**
+ * Start the AGIOS scheduling library and define the callbacks.
+ */
 void start_AGIOS() {
     agios_client.process_request = (void *) callback;
     agios_client.process_requests = (void *) callback_aggregated;
@@ -143,18 +146,23 @@ void start_AGIOS() {
         log_debug("Unable to initialize AGIOS scheduling library");
 
         stop_AGIOS();
+
+        MPI_Abort(MPI_COMM_WORLD, ERROR_AGIOS_INITIALIZATION);
     }
 }
 
+/**
+ * Get the forwarding server the current node should communicate.
+ * @return The rank that represents the forwarding server.
+ */
 int get_forwarding_server() {
     // We need to split the clients between the forwarding servers
     return (world_rank - simulation_forwarders) / ((world_size - simulation_forwarders) / simulation_forwarders);
 }
 
-struct forwarding_statistics *statistics;
-
-pthread_mutex_t statistics_lock;
-
+/**
+ * Handles the incoming requests, processing open and write calls, and scheduling read and write requests to AGIOS.
+ */
 void *server_handler(void *p) {
     int ack;
     char fh_str[255];
@@ -411,6 +419,9 @@ void *server_handler(void *p) {
     }
 }
 
+/**
+ * Dedicated thread to handle incoming requests.
+ */
 void *server_listener(void *p) {
     int i = 0, flag = 0;
 
@@ -521,6 +532,9 @@ void *server_listener(void *p) {
     return NULL;
 }
 
+/**
+ * Dispatch the request to the file system once they have been scheduled.
+ */
 void *server_dispatcher(void *p) {
     int request_id, next_request_id, last_request;
 
@@ -540,11 +554,11 @@ void *server_dispatcher(void *p) {
     char *aggregated_write_buffer;
 
     int aggregated_count = 0;
-    unsigned long int aggregated[MAXIMUM_BATCH_SIZE];
+    unsigned long int aggregated[MAX_BATCH_SIZE];
     unsigned long int aggregated_size = 0;
     unsigned long int aggregated_offset = 0;
-    int32_t aggregated_sizes[MAXIMUM_BATCH_SIZE];
-    int64_t aggregated_offsets[MAXIMUM_BATCH_SIZE];
+    int32_t aggregated_sizes[MAX_BATCH_SIZE];
+    int64_t aggregated_offsets[MAX_BATCH_SIZE];
 
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
@@ -552,10 +566,10 @@ void *server_dispatcher(void *p) {
 
     pqueue_t *pq;
 
-    aggregated_write_buffer = calloc(MAXIMUN_AGGREGATED_BUFFER_SIZE, sizeof(char));
+    aggregated_write_buffer = calloc(MAX_AGGREGATED_BUFFER_SIZE, sizeof(char));
 
     // Initialize the priority queue for the dispatcher
-    pq = pqueue_init(MAXIMUM_QUEUE_ELEMENTS, compare_priority, get_priority, set_priority, get_position, set_position);
+    pq = pqueue_init(MAX_QUEUE_ELEMENTS, compare_priority, get_priority, set_priority, get_position, set_position);
 
     while (1) {
         // Start by locking the queue mutex
@@ -737,7 +751,7 @@ void *server_dispatcher(void *p) {
                     last_request = 1;
                 }
                 
-                if (next != NULL && aggregated_count < MAXIMUM_BATCH_SIZE && next_r->offset == r->offset + aggregated_size) {
+                if (next != NULL && aggregated_count < MAX_BATCH_SIZE && next_r->offset == r->offset + aggregated_size) {
                     // Determine the aggregated request size
                     aggregated_size += next_r->size;
 
@@ -757,23 +771,9 @@ void *server_dispatcher(void *p) {
                     log_debug("aggregated_count = %ld", aggregated_count);
 
                     // Issue the large aggregated request
-                    int rc = pwrite(r->file_handle, aggregated_write_buffer, aggregated_size, r->offset);
-
-                    if (rc != aggregated_size) {
-                        #ifdef EXPLAIN
-                        int err = errno;
-                        char message[3000];
-                        explain_message_errno_pwrite(message, sizeof(message), err, r->file_handle, r->buffer,
-                        r->size, r->offset);
-                        log_error("---> %s\n", message);
-                        #endif
-
-                        log_error("r->filehandle = %ld, r->size = %ld, r->offset = %ld", r->file_handle, r->size, r->offset);
-                        log_error("single write %d of expected %d", rc, aggregated_size);
+                    if (dispatch_write(r, aggregated_size, aggregated_write_buffer) < 0) {
                         MPI_Abort(MPI_COMM_WORLD, ERROR_WRITE_FAILED);
-                    }            
-
-                    unsigned long int offset = 0;
+                    }
 
                     // Iterate over the aggregated request, and reply to their clients
                     for (int i = 0; i < aggregated_count; i++) {
@@ -926,7 +926,7 @@ void *server_dispatcher(void *p) {
                     last_request = 1;
                 }
                 
-                if (next != NULL && aggregated_count < MAXIMUM_BATCH_SIZE && next_r->offset == r->offset + aggregated_size) {
+                if (next != NULL && aggregated_count < MAX_BATCH_SIZE && next_r->offset == r->offset + aggregated_size) {
                     // Determine the aggregated request size
                     aggregated_size += next_r->size;
 
@@ -945,21 +945,9 @@ void *server_dispatcher(void *p) {
                     aggregated_buffer = calloc(aggregated_size, sizeof(char));
                     
                     // Issue the large aggregated request
-                    int rc = pread(r->file_handle, aggregated_buffer, aggregated_size, r->offset);
-
-                    if (rc != aggregated_size) {
-                        #ifdef EXPLAIN
-                        int err = errno;
-                        char message[3000];
-                        explain_message_errno_pread(message, sizeof(message), err, r->file_handle, r->buffer,
-                        r->size, r->offset);
-                        log_error("---> %s\n", message);
-                        #endif
-
-                        log_error("r->filehandle = %ld, r->size = %ld, r->offset = %ld", r->file_handle, r->size, r->offset);
-                        log_error("single read %d of expected %d", rc, aggregated_size);
+                    if (dispatch_read(r, aggregated_size, aggregated_buffer) < 0) {
                         MPI_Abort(MPI_COMM_WORLD, ERROR_READ_FAILED);
-                    }            
+                    }
 
                     unsigned long int offset = 0;
 
@@ -1072,10 +1060,10 @@ int main(int argc, char *argv[]) {
     log_set_level(LOG_TRACE);
     #endif
 
-    char *buffer = calloc(MAXIMUM_REQUEST_SIZE, sizeof(char));
+    char *buffer = calloc(MAX_REQUEST_SIZE, sizeof(char));
 
     if (buffer == NULL) {
-        log_error("ERROR: Unable to allocate the maximum memory size of %d bytes for requests ", MAXIMUM_REQUEST_SIZE);
+        log_error("ERROR: Unable to allocate the maximum memory size of %d bytes for requests ", MAX_REQUEST_SIZE);
 
         MPI_Abort(MPI_COMM_WORLD, ERROR_MEMORY_ALLOCATION);
     }
@@ -1736,7 +1724,7 @@ int main(int argc, char *argv[]) {
         safe_free(buffer, "main::buffer");
 
         // Because of the validation we may have, we need to reset the buffer to avoid possible errors
-        buffer = (char*) calloc(MAXIMUM_REQUEST_SIZE, sizeof(char));
+        buffer = (char*) calloc(MAX_REQUEST_SIZE, sizeof(char));
 
         /*
          * OPEN ------------------------------------------------------------------------------------

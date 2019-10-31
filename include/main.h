@@ -11,127 +11,49 @@
 #include <limits.h>
 #include <time.h>
 
-// sudo apt-get install libgsl-dev
 #include <gsl/gsl_sort.h>
 #include <gsl/gsl_statistics.h>
 
 #include "jsmn.h"
-#include "fwd_list.h"
-#include "uthash.h"
 #include "pqueue.h"
 
-#define READ 0
-#define WRITE 1
-#define OPEN 3
-#define CLOSE 4
+#define ERROR_FAILED_TO_PARSE_JSON 70001 	/*!< Failed to parse the JSON file. */
+#define ERROR_INVALID_JSON 70002			/*!< Invalid JSON file. */
+#define ERROR_AGIOS_REQUEST 70003			/*!< Error when sending a request to AGIOS. */
+#define ERROR_SEEK_FAILED 70004				/*!< Error when seeking a position in file. */
+#define ERROR_WRITE_FAILED 70005			/*!< Error when issuing a write operation. */
+#define ERROR_READ_FAILED 70006				/*!< Error when issuing a read operation. */
+#define ERROR_INVALID_REQUEST_ID 70007		/*!< Invalid request ID code. */
+#define ERROR_INVALID_PATTERN 70008			/*!< Invalid access pattern to emulate. */
+#define ERROR_INVALID_SETUP 70009			/*!< Invalid emulation setup. */
+#define ERROR_MEMORY_ALLOCATION 70010		/*!< Unable to allocate the necessary memory. */
+#define ERROR_UNSUPPORTED 70011				/*!< Unsupported operation. */
+#define ERROR_UNKNOWN_REQUEST_TYPE 70012	/*!< Unkown request type. */
+#define ERROR_INVALID_FILE_HANDLE 70013		/*!< Invalid file handle. */
+#define ERROR_FAILED_TO_CLOSE 70014			/*!< Failed to close a file. */
+#define ERROR_INVALID_VALIDATION 70015		/*!< Invalid validation option was provided by the user. */
+#define ERROR_POSIX_OPEN 700016				/*!< Error when operning a file using POSIX. */
+#define ERROR_PVFS_OPEN 700017				/*!< Error when operning a file using PVFS. */
+#define ERROR_VALIDATION_FAILED 700018		/*!< Validation failed. */
+#define ERROR_AGIOS_INITIALIZATION 700019   /*!< Unable to initialize AGIOS, check for the configuration file. */
 
-#define MAXIMUM_REQUEST_SIZE (128 * 1024 * 1024)
-#define MAXIMUN_AGGREGATED_BUFFER_SIZE (1 * 1024 * 1024 * 1024)
-#define MAXIMUM_BATCH_SIZE 16
-#define MAXIMUM_QUEUE_ELEMENTS 1024
-
-#define FWD_MAX_HANDLER_THREADS 128
-#define FWD_MAX_PROCESS_THREADS 128
-
-#define TAG_REQUEST 10001
-#define TAG_BUFFER 10002
-#define TAG_ACK 10003
-#define TAG_HANDLE 10004
-
-#define INDIVIDUAL 0
-#define SHARED 1
-
-#define CONTIGUOUS 0
-#define STRIDED 1
-
-/* Timeout in seconds */
-#define TIMEOUT 1
-
-#define AGIOS_CONFIGURATION "/tmp/agios.conf"
-/*#define AGIOS_CONFIGURATION "/scratch/cenapadrjsd/jean.bez/agios/agios.conf"*/
-
-#define ERROR_FAILED_TO_PARSE_JSON 70001
-#define ERROR_INVALID_JSON 70002
-#define ERROR_AGIOS_REQUEST 70003
-#define ERROR_SEEK_FAILED 70004
-#define ERROR_WRITE_FAILED 70005
-#define ERROR_READ_FAILED 70006
-#define ERROR_INVALID_REQUEST_ID 70007
-#define ERROR_INVALID_PATTERN 70008
-#define ERROR_INVALID_SETUP 70009
-#define ERROR_MEMORY_ALLOCATION 70010
-#define ERROR_UNSUPPORTED 70011
-#define ERROR_UNKNOWN_REQUEST_TYPE 70012
-#define ERROR_INVALID_FILE_HANDLE 70013
-#define ERROR_FAILED_TO_CLOSE 70014
-#define ERROR_INVALID_VALIDATION 70015
-#define ERROR_POSIX_OPEN 700016
-#define ERROR_PVFS_OPEN 700017
-#define ERROR_VALIDATION_FAILED 700018
-
+/**
+ * A structure to hold a client request.
+ */ 
 struct request {
-	char file_name[255];
-	int file_handle;
+	char file_name[255];			/*!< File name required for open operations. */
+	int file_handle;				/*!< Once the file has been open, store the handle for future operations. */
 
-	int operation;
+	int operation;					/*!< Identify the I/O operation. */
 
-	unsigned long offset;
-	unsigned long size;
-};
-
-// Structure to keep track of the requests in the forwarding layer
-struct forwarding_request {
-	unsigned long long int id;
-
-	int rank;
-
-	char file_name[255];
-	int file_handle;
-	
-	int operation;
-	unsigned long offset;
-	unsigned long size;
-	char *buffer;
-
-	// To handle the request while in the incoming queue
-	struct fwd_list_head list;
-
-	// To handle the request once it is scheduled by AGIOS
-	UT_hash_handle hh;
-};
-
-struct ready_request {
-	unsigned long long int id;
-
-	struct fwd_list_head list;
-};
-
-// Struture to keep track of open file handles
-struct opened_handles {
-	int fh;
-
-	char path[255];
-	int references;
-	//pvfs2_file_object pvfs_file;
-
-	UT_hash_handle hh;
-	//UT_hash_handle hh_pvfs;
-};
-
-// Structure to store statistics of requests in each forwarding
-struct forwarding_statistics {
-	unsigned long int open;
-	unsigned long int read;
-	unsigned long int write;
-	unsigned long int close;
-
-	unsigned long int read_size;
-	unsigned long int write_size;
+	unsigned long offset;			/*!< Offset of the request in the file. */
+	unsigned long size;				/*!< Size of the request. */
 };
 
 unsigned long long int generate_identifier();
 
 void callback(unsigned long long int id);
+void callback_aggregated(unsigned long long int *ids, int total);
 
 void start_AGIOS();
 void stop_AGIOS();
