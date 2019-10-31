@@ -14,8 +14,6 @@ image: jeanbez/forge
 compile FORGE:
   stage: build
   script:
-    - apt-get update && apt-get install doxygen -y
-    - pip install sphinx
     - mkdir -p ${BUILD_PATH} && cd ${BUILD_PATH}
     - cmake -DCMAKE_INSTALL_PREFIX=${INSTALL_PATH} ${CI_PROJECT_DIR}
     - make
