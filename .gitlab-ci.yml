@@ -1,6 +1,7 @@
 stages:
   - build
-  - test
+  - test-single
+  - test-multiple
 
 variables:
   BUILD_PATH: "${CI_PROJECT_DIR}/forge/build"
@@ -23,7 +24,7 @@ compile FORGE:
      - ${INSTALL_PATH}
 
 one-forwarder file-per-process:
-  stage: test
+  stage: test-single
   script:
     - mkdir -p "${LOG_PATH}"
     - mkdir -p "${TEMPORARY_PATH}"
@@ -39,7 +40,7 @@ one-forwarder file-per-process:
      - "${TESTS_PATH}/one-forwarder/file-per-process.json.0.stats"
 
 one-forwarder shared-file-contiguous:
-  stage: test
+  stage: test-single
   script:
     - mkdir -p "${LOG_PATH}"
     - mkdir -p "${TEMPORARY_PATH}"
@@ -55,7 +56,7 @@ one-forwarder shared-file-contiguous:
      - "${TESTS_PATH}/one-forwarder/shared-file-contiguous.json.0.stats"
 
 one-forwarder shared-file-strided:
-  stage: test
+  stage: test-single
   script:
     - mkdir -p "${LOG_PATH}"
     - mkdir -p "${TEMPORARY_PATH}"
@@ -71,7 +72,7 @@ one-forwarder shared-file-strided:
      - "${TESTS_PATH}/one-forwarder/shared-file-strided.json.0.stats"
 
 two-forwarders file-per-process:
-  stage: test
+  stage: test-multiple
   script:
     - mkdir -p "${LOG_PATH}"
     - mkdir -p "${TEMPORARY_PATH}"
@@ -87,7 +88,7 @@ two-forwarders file-per-process:
      - "${TESTS_PATH}/two-forwarders/file-per-process.json.0.stats"
 
 two-forwarders shared-file-contiguous:
-  stage: test
+  stage: test-multiple
   script:
     - mkdir -p "${LOG_PATH}"
     - mkdir -p "${TEMPORARY_PATH}"
@@ -103,7 +104,7 @@ two-forwarders shared-file-contiguous:
      - "${TESTS_PATH}/two-forwarders/shared-file-contiguous.json.0.stats"
 
 two-forwarders shared-file-strided:
-  stage: test
+  stage: test-multiple
   script:
     - mkdir -p "${LOG_PATH}"
     - mkdir -p "${TEMPORARY_PATH}"
@@ -119,7 +120,7 @@ two-forwarders shared-file-strided:
      - "${TESTS_PATH}/two-forwarders/shared-file-strided.json.0.stats"
 
 four-forwarders file-per-process:
-  stage: test
+  stage: test-multiple
   script:
     - mkdir -p "${LOG_PATH}"
     - mkdir -p "${TEMPORARY_PATH}"
@@ -135,7 +136,7 @@ four-forwarders file-per-process:
      - "${TESTS_PATH}/four-forwarders/file-per-process.json.0.stats"
 
 four-forwarders shared-file-contiguous:
-  stage: test
+  stage: test-multiple
   script:
     - mkdir -p "${LOG_PATH}"
     - mkdir -p "${TEMPORARY_PATH}"
@@ -151,7 +152,7 @@ four-forwarders shared-file-contiguous:
      - "${TESTS_PATH}/four-forwarders/shared-file-contiguous.json.0.stats"
 
 four-forwarders shared-file-strided:
-  stage: test
+  stage: test-multiple
   script:
     - mkdir -p "${LOG_PATH}"
     - mkdir -p "${TEMPORARY_PATH}"

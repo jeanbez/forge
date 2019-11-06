@@ -785,6 +785,10 @@ INPUT                  = ../../src/main.c \
                          ../../src/pqueue.c \
                          ../../src/utils.c \
                          ../../src/jsmn.c \
+                         ../../src/scheduler.c \
+                         ../../src/server/listener.c \
+                         ../../src/server/handler.c \
+                         ../../src/server/dispatcher.c \
                          ../../src/dispatcher/posix.c \
                          ../../include/forge.h \
                          ../../include/main.h \
@@ -792,6 +796,10 @@ INPUT                  = ../../src/main.c \
                          ../../include/pqueue.h \
                          ../../include/utils.h \
                          ../../include/jsmn.h \
+                         ../../include/scheduler.h \
+                         ../../include/server/listener.h \
+                         ../../include/server/handler.h \
+                         ../../include/server/dispatcher.h \
                          ../../include/dispatcher/posix.h
 
 # This tag can be used to specify the character encoding of the source files

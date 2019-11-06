@@ -44,11 +44,16 @@ if(PVFS)
 else()
 	set( FORGE_CMAKE_SOURCES
 		src/main.c
+		src/scheduler.c
 		src/jsmn.c
 		src/log.c
 		src/fwd_list.c
 		src/pqueue.c
 		src/utils.c
+		src/thpool.c
+		src/server/listener.c
+		src/server/handler.c
+		src/server/dispatcher.c
 		src/dispatcher/posix.c
 	)
 endif()
