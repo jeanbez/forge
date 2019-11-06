@@ -1,5 +1,10 @@
 #include "server/dispatcher.h"
+
+#ifdef PVFS
+#include "dispatcher/orangefs.h"
+#else
 #include "dispatcher/posix.h"
+#endif
 
 static int compare_priority(pqueue_pri_t next, pqueue_pri_t current) {
     return (next < current);

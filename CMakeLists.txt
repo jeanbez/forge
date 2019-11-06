@@ -28,18 +28,25 @@ include_directories(${GSL_INCLUDE_DIR})
 include_directories(include)
 
 if(PVFS)
-	include_directories(/opt/orangefs/include)
+	include_directories(SYSTEM /opt/orangefs/include)
 endif(PVFS)
+
+include_directories(include)
 
 if(PVFS)
 	set( FORGE_CMAKE_SOURCES
-		src/main-orange.c
+		src/main.c
+		src/scheduler.c
 		src/jsmn.c
 		src/log.c
 		src/fwd_list.c
 		src/pqueue.c
 		src/utils.c
-		src/orangefs_dispatcher.c
+		src/thpool.c
+		src/server/listener.c
+		src/server/handler.c
+		src/server/dispatcher.c
+		src/dispatcher/orangefs.c
 	)
 else()
 	set( FORGE_CMAKE_SOURCES

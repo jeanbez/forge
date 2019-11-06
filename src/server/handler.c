@@ -67,6 +67,30 @@ void *server_handler(void *p) {
                     MPI_Abort(MPI_COMM_WORLD, ERROR_MEMORY_ALLOCATION);
                 }
 
+                #ifdef PVFS
+                // Generate an identifier for the PVFS file
+                int fh = generate_pfs_identifier();
+                
+                // Open the file in PVFS
+                int ret = PVFS_util_resolve(
+                    r->file_name,
+                    &(h->pvfs_file.fs_id),
+                    h->pvfs_file.pvfs2_path,
+                    PVFS_NAME_MAX
+                );
+
+                log_debug("----> (ret=%d) %s", ret, h->pvfs_file.pvfs2_path);
+
+                strncpy(h->pvfs_file.user_path, r->file_name, PVFS_NAME_MAX);
+
+                ret = generic_open(&h->pvfs_file, &credentials);
+
+                if (ret < 0) {
+                    log_debug("Could not open %s", r->file_name);
+
+                    MPI_Abort(MPI_COMM_WORLD, ERROR_PVFS_OPEN);
+                }
+                #else
                 int fh = open(r->file_name, O_CREAT | O_RDWR, 0666);
                 
                 if (fh < 0) {
@@ -74,6 +98,7 @@ void *server_handler(void *p) {
 
                     MPI_Abort(MPI_COMM_WORLD, ERROR_POSIX_OPEN);
                 }
+                #endif
                 
                 // Saves the file handle in the hash
                 h->fh = fh;
@@ -82,6 +107,9 @@ void *server_handler(void *p) {
 
                 // Include in both hashes
                 HASH_ADD(hh, opened_files, path, strlen(r->file_name), h);
+                #ifdef PVFS
+                HASH_ADD(hh_pvfs, opened_pvfs_files, fh, sizeof(int), h);
+                #endif
             } else {
                 struct opened_handles *tmp = (struct opened_handles *) malloc(sizeof(struct opened_handles));
 
@@ -93,6 +121,9 @@ void *server_handler(void *p) {
                 h->references = h->references + 1;
                 
                 HASH_REPLACE(hh, opened_files, path, strlen(r->file_name), h, tmp);
+                #ifdef PVFS
+                HASH_REPLACE(hh_pvfs, opened_pvfs_files, fh, sizeof(int), h, tmp);
+                #endif
 
                 log_debug("FILE: %s", r->file_name);
             }
@@ -215,8 +246,10 @@ void *server_handler(void *p) {
                 if (h->references == 0) {
                     log_debug("CLOSED: %s (%d)", h->path, h->fh);
 
+                    #ifndef PVFS
                     // Close the file
                     close(h->fh);
+                    #endif
 
                     // Remove the request from the hash
                     HASH_DELETE(hh, opened_files, h);
@@ -230,7 +263,10 @@ void *server_handler(void *p) {
                     }
 
                     HASH_REPLACE(hh, opened_files, path, strlen(r->file_name), h, tmp);
-                    
+                    #ifdef PVFS
+                    HASH_REPLACE(hh_pvfs, opened_pvfs_files, fh, sizeof(int), h, tmp);
+                    #endif
+
                     log_debug("FILE HANDLE: %d (references = %d)", h->fh, h->references);
                 }               
             }

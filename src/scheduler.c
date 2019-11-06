@@ -7,6 +7,10 @@
 void callback(unsigned long long int id) {
     log_trace("AGIOS_CALLBACK: %ld", id);
 
+    #ifdef DEBUG
+    struct ready_request *tmp;
+    #endif
+
     // Create the ready request
     struct ready_request *ready_r = (struct ready_request *) malloc(sizeof(struct ready_request));
 
@@ -39,6 +43,10 @@ void callback(unsigned long long int id) {
  */
 void callback_aggregated(unsigned long long int *ids, int total) {
     int i;
+
+    #ifdef DEBUG
+    struct ready_request *tmp;
+    #endif
 
     pthread_mutex_lock(&ready_queue_mutex);
 

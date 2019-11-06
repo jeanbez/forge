@@ -437,6 +437,10 @@ int main(int argc, char *argv[]) {
     if (is_forwarding) {
         global_id = 1000000;
 
+        #ifdef PVFS
+        pvfs_fh_id = 100;
+        #endif
+
         shutdown = 0;
         shutdown_control = 0;
 
@@ -467,6 +471,20 @@ int main(int argc, char *argv[]) {
         statistics->read_size = 0;
         statistics->write_size = 0;
 
+        #ifdef PVFS
+        ret = PVFS_util_init_defaults();
+
+        if (ret < 0) {
+            PVFS_perror("PVFS_util_init_defaults", ret);
+        } else {
+            log_info("listener: connected to the PVFS!");
+        }
+
+        memset(&credentials, 0, sizeof(PVFS_credentials));
+        
+        PVFS_util_gen_credentials(&credentials);
+        #endif
+
         // Create threads to issue the requests
         pthread_create(&dispatcher, NULL, server_dispatcher, NULL);
 
@@ -494,6 +512,11 @@ int main(int argc, char *argv[]) {
         pthread_join(listener, NULL);
 
         MPI_Barrier(forwarding_comm);
+
+        #ifdef PVFS
+        // Finalizes the PVFS connection
+        PVFS_sys_finalize();
+        #endif
 
         // Stops the AGIOS scheduling library
         stop_AGIOS();
@@ -970,9 +993,9 @@ int main(int argc, char *argv[]) {
     // Free the buffer
     safe_free(buffer, "main:buffer");
 
-    safe_free(simulation_base_path, "main:simulation_path");
-    safe_free(simulation_files_name, "main:simulation_files_name");
-    safe_free(simulation_spatiality_name, "main:simulation_spatiality_name");
+    free(simulation_base_path);
+    free(simulation_files_name);
+    free(simulation_spatiality_name);
 
     if (world_rank == 0) {
         log_info("I/O Forwarding Emulation [COMPLETE]");

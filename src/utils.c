@@ -17,6 +17,24 @@ unsigned long long int generate_identifier() {
     return global_id;
 }
 
+#ifdef PVFS
+/**
+ * Generate an unique identifier for PVFS/OrangeFS file handles.
+ * @return Unique ID for the file handle.
+ */
+int generate_pfs_identifier() {
+    pthread_mutex_lock(&pvfs_fh_id_lock);
+    pvfs_fh_id++;
+
+    if (pvfs_fh_id > INT_MAX - 10) {
+        pvfs_fh_id = 100;
+    }
+    pthread_mutex_unlock(&pvfs_fh_id_lock);
+
+    return pvfs_fh_id;
+}
+#endif
+
 void safe_memory_free(void ** pointer_address, char *id) {
     if (pointer_address != NULL && *pointer_address != NULL) {
         free(*pointer_address);

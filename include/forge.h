@@ -4,6 +4,11 @@
 #include "thpool.h"
 #include "uthash.h"
 
+#ifdef PVFS
+#include "pvfs2.h"
+#include "dispatcher/orangefs-types.h"
+#endif
+
 #define ERROR_FAILED_TO_PARSE_JSON 70001 		/*!< Failed to parse the JSON file. */
 #define ERROR_INVALID_JSON 70002				/*!< Invalid JSON file. */
 #define ERROR_AGIOS_REQUEST 70003				/*!< Error when sending a request to AGIOS. */
@@ -143,6 +148,9 @@ pthread_mutex_t handles_lock;
 // Declares the hash to hold the requests and initialize it to NULL (mandatory to initialize to NULL)
 struct forwarding_request *requests;
 struct opened_handles *opened_files;
+#ifdef PVFS
+struct opened_handles *opened_pvfs_files;
+#endif
 
 pthread_mutex_t incoming_queue_mutex;
 pthread_cond_t incoming_queue_signal;
