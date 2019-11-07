@@ -7,6 +7,11 @@
 void dispatch_read(struct aggregated_request *aggregated) {
     int ret;
 
+    // PVFS variables needed for the direct integration
+    PVFS_offset file_req_offset;
+    PVFS_Request file_req, mem_req;
+    PVFS_sysresp_io resp_io;
+
     // Buffer is contiguous in memory because of calloc
     ret = PVFS_Request_contiguous(
         aggregated->size,
@@ -47,9 +52,6 @@ void dispatch_read(struct aggregated_request *aggregated) {
         NULL
     );
 
-    //PVFS_Request_free(&mem_req);
-    //PVFS_Request_free(&file_req);
-
     #ifdef DEBUG
     if (ret == 0) {                
         log_debug("%ld\n", resp_io.total_completed);
@@ -59,6 +61,9 @@ void dispatch_read(struct aggregated_request *aggregated) {
     #endif
 
     callback_read(aggregated);
+
+    PVFS_Request_free(&mem_req);
+    PVFS_Request_free(&file_req);
 }
 
 /**
@@ -67,6 +72,10 @@ void dispatch_read(struct aggregated_request *aggregated) {
  */
 void dispatch_write(struct aggregated_request *aggregated) {
     int ret;
+
+    // PVFS variables needed for the direct integration
+    PVFS_Request mem_req;
+    PVFS_sysresp_io resp_io;
 
     // Buffer is contiguous in memory because of calloc
     ret = PVFS_Request_contiguous(
@@ -101,8 +110,6 @@ void dispatch_write(struct aggregated_request *aggregated) {
         NULL
     );
 
-    //PVFS_Request_free(&mem_req);
-
     #ifdef DEBUG
     if (ret == 0) {
         log_debug("%ld\n", resp_io.total_completed);
@@ -112,6 +119,8 @@ void dispatch_write(struct aggregated_request *aggregated) {
     #endif
 
     callback_write(aggregated);
+
+    PVFS_Request_free(&mem_req);
 }
 
 /**

@@ -253,6 +253,7 @@ void *server_handler(void *p) {
 
                     // Remove the request from the hash
                     HASH_DELETE(hh, opened_files, h);
+                    HASH_DELETE(hh_pvfs, opened_pvfs_files, h);
                     
                     safe_free(h, "server_listener::h");
                 } else {

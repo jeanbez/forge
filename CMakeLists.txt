@@ -31,8 +31,6 @@ if(PVFS)
 	include_directories(SYSTEM /opt/orangefs/include)
 endif(PVFS)
 
-include_directories(include)
-
 if(PVFS)
 	set( FORGE_CMAKE_SOURCES
 		src/main.c

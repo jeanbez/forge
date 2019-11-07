@@ -35,6 +35,11 @@ int generate_pfs_identifier() {
 }
 #endif
 
+/**
+ * Attempt to safely free a memory. Should be used for debug purposes.
+ * @param **pointer_address The pointer address to free
+ * @param *id A message to identify where the call was done.
+ */
 void safe_memory_free(void ** pointer_address, char *id) {
     if (pointer_address != NULL && *pointer_address != NULL) {
         free(*pointer_address);
