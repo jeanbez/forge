@@ -5,8 +5,10 @@
 
 #define safe_free(pointer, id) safe_memory_free((void **) &(pointer), id)
 
+#ifdef STATISTICS
 struct forwarding_statistics *statistics;
 pthread_mutex_t statistics_lock;
+#endif
 
 unsigned long long int global_id;
 pthread_mutex_t global_id_lock;

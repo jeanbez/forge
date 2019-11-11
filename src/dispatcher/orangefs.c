@@ -11,6 +11,9 @@ void dispatch_read(struct aggregated_request *aggregated) {
     PVFS_offset file_req_offset;
     PVFS_Request file_req, mem_req;
     PVFS_sysresp_io resp_io;
+    PVFS_credentials credentials;
+
+    PVFS_util_gen_credentials(&credentials);
 
     // Buffer is contiguous in memory because of calloc
     ret = PVFS_Request_contiguous(
@@ -33,14 +36,14 @@ void dispatch_read(struct aggregated_request *aggregated) {
     
     struct opened_handles *h = NULL;
 
-    pthread_mutex_lock(&handles_lock);
+    pthread_rwlock_rdlock(&handles_rwlock);
     HASH_FIND(hh_pvfs, opened_pvfs_files, &aggregated->r->file_handle, sizeof(int), h);
         
     if (h == NULL) {
         log_error("unable to find the handle");
     }
-    pthread_mutex_unlock(&handles_lock);
-
+    pthread_rwlock_unlock(&handles_rwlock);
+    
     ret = PVFS_sys_read(
         h->pvfs_file.ref, 
         file_req, 
@@ -76,6 +79,9 @@ void dispatch_write(struct aggregated_request *aggregated) {
     // PVFS variables needed for the direct integration
     PVFS_Request mem_req;
     PVFS_sysresp_io resp_io;
+    PVFS_credentials credentials;
+
+    PVFS_util_gen_credentials(&credentials);
 
     // Buffer is contiguous in memory because of calloc
     ret = PVFS_Request_contiguous(
@@ -90,14 +96,14 @@ void dispatch_write(struct aggregated_request *aggregated) {
 
     struct opened_handles *h = NULL;
 
-    pthread_mutex_lock(&handles_lock);
+    pthread_rwlock_rdlock(&handles_rwlock);
     HASH_FIND(hh_pvfs, opened_pvfs_files, &aggregated->r->file_handle, sizeof(int), h);
         
     if (h == NULL) {
         log_error("unable to find the handle");
     }
-
-    pthread_mutex_unlock(&handles_lock);
+    pthread_rwlock_unlock(&handles_rwlock);
+    
     log_trace("offset = {%ld} buffer = {%s}\n", aggregated->r->offset, aggregated->buffer);
     ret = PVFS_sys_write(
         h->pvfs_file.ref, 
@@ -142,14 +148,14 @@ void callback_read(struct aggregated_request *aggregated) {
         // Get and remove the request from the list    
         log_debug("aggregated[%d/%d] = %ld", i + 1, aggregated->count, aggregated->ids[i]);
 
-        pthread_mutex_lock(&requests_lock);
+        pthread_rwlock_wrlock(&requests_rwlock);
         HASH_FIND_INT(requests, &aggregated->ids[i], current_r);
 
         if (current_r == NULL) {
             log_error("5. unable to find the request %lld", aggregated->ids[i]);
         }
         HASH_DEL(requests, current_r);
-        pthread_mutex_unlock(&requests_lock);
+        pthread_rwlock_unlock(&requests_rwlock);
         
         #ifdef DEBUG
         log_trace("AGGREGATED={%s}", aggregated->buffer);
@@ -197,14 +203,14 @@ void callback_write(struct aggregated_request *aggregated) {
         // Get and remove the request from the list    
         log_debug("aggregated[%d/%d] = %ld", i + 1, aggregated->count, aggregated->ids[i]);
 
-        pthread_mutex_lock(&requests_lock);
+        pthread_rwlock_wrlock(&requests_rwlock);
         HASH_FIND_INT(requests, &aggregated->ids[i], current_r);
 
         if (current_r == NULL) {
             log_error("5. unable to find the request %lld", aggregated->ids[i]);
         }
         HASH_DEL(requests, current_r);
-        pthread_mutex_unlock(&requests_lock);
+        pthread_rwlock_unlock(&requests_rwlock);
 
         MPI_Send(&ack, 1, MPI_INT, current_r->rank, TAG_ACK, MPI_COMM_WORLD); 
 

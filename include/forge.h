@@ -131,6 +131,7 @@ struct opened_handles {
 	UT_hash_handle hh_pvfs;							/*!< To handle the file in PVFS. */
 };
 
+#ifdef STATISTICS
 // Structure to store statistics of requests in each forwarding
 struct forwarding_statistics {
 	unsigned long int open;							/*!< Number of open operations. */
@@ -141,9 +142,10 @@ struct forwarding_statistics {
 	unsigned long int read_size;					/*!< Total size of read requests. */
 	unsigned long int write_size;					/*!< Total size of write requests. */
 };
+#endif
 
-pthread_mutex_t requests_lock;
-pthread_mutex_t handles_lock;
+pthread_rwlock_t requests_rwlock;
+pthread_rwlock_t handles_rwlock;
 
 // Declares the hash to hold the requests and initialize it to NULL (mandatory to initialize to NULL)
 struct forwarding_request *requests;

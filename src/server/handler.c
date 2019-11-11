@@ -35,10 +35,9 @@ void *server_handler(void *p) {
             }
 
             // This call unlocks the mutex when called and relocks it before returning!
-            pthread_cond_timedwait(&incoming_queue_signal, &incoming_queue_mutex, &timeout);
+            pthread_cond_wait(&incoming_queue_signal, &incoming_queue_mutex); //, &timeout);
         }
 
-    
         // There must be data in the ready queue, so we can get it
         r = fwd_list_entry(incoming_queue.next, struct forwarding_request, list);
 
@@ -55,7 +54,7 @@ void *server_handler(void *p) {
             struct opened_handles *h = NULL;
 
             // Check if the file is already opened
-            pthread_mutex_lock(&handles_lock);
+            pthread_rwlock_wrlock(&handles_rwlock);
             HASH_FIND_STR(opened_files, r->file_name, h);
 
             if (h == NULL) {
@@ -129,8 +128,8 @@ void *server_handler(void *p) {
             }
 
             // Release the lock that guaranteed an atomic update
-            pthread_mutex_unlock(&handles_lock);
-
+            pthread_rwlock_unlock(&handles_rwlock);
+            
             if (h == NULL) {
                 MPI_Abort(MPI_COMM_WORLD, ERROR_MEMORY_ALLOCATION);
             }
@@ -140,10 +139,12 @@ void *server_handler(void *p) {
             // Return the handle to be used in future operations
             MPI_Send(&h->fh, 1, MPI_INT, r->rank, TAG_HANDLE, MPI_COMM_WORLD);
 
+            #ifdef STATISTICS
             // Update the statistics
             pthread_mutex_lock(&statistics_lock);
             statistics->open += 1;
             pthread_mutex_unlock(&statistics_lock);
+            #endif
 
             // We can free the request as it has been processed
             safe_free(r, "server_listener::r");
@@ -154,19 +155,21 @@ void *server_handler(void *p) {
         // Process the READ request
         if (r->operation == READ) {
             // Include the request into the hash list
-            pthread_mutex_lock(&requests_lock);
+            pthread_rwlock_wrlock(&requests_rwlock);
             HASH_ADD_INT(requests, id, r);
-            pthread_mutex_unlock(&requests_lock);
+            pthread_rwlock_unlock(&requests_rwlock);
 
             log_debug("add (handle: %d, operation: %d, offset: %ld, size: %ld, rank: %d, id: %ld)", r->file_handle, r->operation, r->offset, r->size, r->rank, r->id);
 
             sprintf(fh_str, "%015d", r->file_handle);
 
+            #ifdef STATISTICS
             // Update the statistics
             pthread_mutex_lock(&statistics_lock);
             statistics->read += 1;
             statistics->read_size += r->size;
             pthread_mutex_unlock(&statistics_lock);
+            #endif
 
             // Send the request to AGIOS
             if (agios_add_request(fh_str, r->operation, r->offset, r->size, (void *)r->id, &agios_client, 0)) {
@@ -203,19 +206,21 @@ void *server_handler(void *p) {
             assert(r->size == size);
 
             // Include the request into the hash list
-            pthread_mutex_lock(&requests_lock);
+            pthread_rwlock_wrlock(&requests_rwlock);
             HASH_ADD_INT(requests, id, r);
-            pthread_mutex_unlock(&requests_lock);
-
+            pthread_rwlock_unlock(&requests_rwlock);
+            
             log_debug("add (handle: %d, operation: %d, offset: %ld, size: %ld, id: %ld)", r->file_handle, r->operation, r->offset, r->size, r->id);
 
             sprintf(fh_str, "%015d", r->file_handle);
 
+            #ifdef STATISTICS
             // Update the statistics
             pthread_mutex_lock(&statistics_lock);
             statistics->write += 1;
             statistics->write_size += r->size;
             pthread_mutex_unlock(&statistics_lock);
+            #endif
 
             // Send the request to AGIOS
             if (agios_add_request(fh_str, r->operation, r->offset, r->size, (void *)r->id, &agios_client, 0)) {
@@ -233,7 +238,7 @@ void *server_handler(void *p) {
             struct opened_handles *h = NULL;
 
             // Check if the file is already opened
-            pthread_mutex_lock(&handles_lock);
+            pthread_rwlock_wrlock(&handles_rwlock);
             HASH_FIND_STR(opened_files, r->file_name, h);
 
             if (h == NULL) {
@@ -275,15 +280,17 @@ void *server_handler(void *p) {
             }
 
             // Release the lock that guaranteed an atomic update
-            pthread_mutex_unlock(&handles_lock);
+            pthread_rwlock_unlock(&handles_rwlock);
 
             // Return the handle to be used in future operations
             MPI_Send(&ack, 1, MPI_INT, r->rank, TAG_ACK, MPI_COMM_WORLD);
 
+            #ifdef STATISTICS
             // Update the statistics
             pthread_mutex_lock(&statistics_lock);
             statistics->close += 1;
             pthread_mutex_unlock(&statistics_lock);
+            #endif
 
             // We can free the request as it has been processed
             safe_free(r, "server_listener::r");

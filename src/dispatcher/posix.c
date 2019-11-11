@@ -61,14 +61,14 @@ void callback_read(struct aggregated_request *aggregated) {
         // Get and remove the request from the list    
         log_debug("aggregated[%d/%d] = %ld", i + 1, aggregated->count, aggregated->ids[i]);
 
-        pthread_mutex_lock(&requests_lock);
+        pthread_rwlock_wrlock(&requests_rwlock);
         HASH_FIND_INT(requests, &aggregated->ids[i], current_r);
 
         if (current_r == NULL) {
             log_error("5. unable to find the request %lld", aggregated->ids[i]);
         }
         HASH_DEL(requests, current_r);
-        pthread_mutex_unlock(&requests_lock);
+        pthread_rwlock_unlock(&requests_rwlock);
         
         #ifdef DEBUG
         log_trace("AGGREGATED={%s}", aggregated->buffer);
@@ -116,14 +116,14 @@ void callback_write(struct aggregated_request *aggregated) {
         // Get and remove the request from the list    
         log_debug("aggregated[%d/%d] = %ld", i + 1, aggregated->count, aggregated->ids[i]);
 
-        pthread_mutex_lock(&requests_lock);
+        pthread_rwlock_wrlock(&requests_rwlock);
         HASH_FIND_INT(requests, &aggregated->ids[i], current_r);
 
         if (current_r == NULL) {
             log_error("5. unable to find the request %lld", aggregated->ids[i]);
         }
         HASH_DEL(requests, current_r);
-        pthread_mutex_unlock(&requests_lock);
+        pthread_rwlock_unlock(&requests_rwlock);
 
         MPI_Send(&ack, 1, MPI_INT, current_r->rank, TAG_ACK, MPI_COMM_WORLD); 
 

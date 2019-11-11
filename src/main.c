@@ -434,6 +434,9 @@ int main(int argc, char *argv[]) {
     MPI_Type_create_struct(5, block_lengths, displacement, type, &request_datatype); 
     MPI_Type_commit(&request_datatype);
 
+    pthread_rwlock_init(&requests_rwlock, NULL);
+    pthread_rwlock_init(&handles_rwlock,NULL);
+
     if (is_forwarding) {
         global_id = 1000000;
 
@@ -461,6 +464,7 @@ int main(int argc, char *argv[]) {
         pthread_t handler[FWD_MAX_HANDLER_THREADS];
         pthread_t dispatcher;
 
+        #ifdef STATISTICS
         statistics = (struct forwarding_statistics *) malloc(sizeof(struct forwarding_statistics));
 
         statistics->open = 0;
@@ -470,6 +474,7 @@ int main(int argc, char *argv[]) {
 
         statistics->read_size = 0;
         statistics->write_size = 0;
+        #endif
 
         #ifdef PVFS
         ret = PVFS_util_init_defaults();
@@ -521,6 +526,7 @@ int main(int argc, char *argv[]) {
         // Stops the AGIOS scheduling library
         stop_AGIOS();
 
+        #ifdef STATISTICS
         MPI_File_open(MPI_COMM_SELF, simulation_stats_file, MPI_MODE_CREATE|MPI_MODE_WRONLY, MPI_INFO_NULL, &fh);
 
         char stats[1048576];
@@ -543,6 +549,7 @@ int main(int argc, char *argv[]) {
         MPI_File_close(&fh);
 
         free(statistics);
+        #endif
     } else {
         int forwarding_fh;
 

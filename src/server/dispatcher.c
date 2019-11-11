@@ -96,7 +96,7 @@ void *server_dispatcher(void *p) {
             }
 
             // This call unlocks the mutex when called and relocks it before returning!
-            pthread_cond_timedwait(&ready_queue_signal, &ready_queue_mutex, &timeout);
+            pthread_cond_wait(&ready_queue_signal, &ready_queue_mutex); //, &timeout);
         }
 
         // There must be data in the ready queue, so we can get it
@@ -118,25 +118,23 @@ void *server_dispatcher(void *p) {
         // Process the request
         #ifdef DEBUG
         // Discover the rank that sent us the message
-        pthread_mutex_lock(&requests_lock);
+        pthread_rwlock_rdlock(&requests_rwlock);
         log_debug("[P-%ld] Pending requests: %u", pthread_self(), HASH_COUNT(requests));
-        pthread_mutex_unlock(&requests_lock);
+        pthread_rwlock_unlock(&requests_rwlock);
         
         log_debug("[P-%ld] Request ID: %u", pthread_self(), request_id);
         #endif
 
         // Get the request from the hash and remove it from there
-        pthread_mutex_lock(&requests_lock);
+        pthread_rwlock_rdlock(&requests_rwlock);
         HASH_FIND_INT(requests, &request_id, r);
 
         if (r == NULL) {
             log_error("1. unable to find the request id: %ld", request_id);
             MPI_Abort(MPI_COMM_WORLD, ERROR_INVALID_REQUEST_ID);
         }
-
-        //HASH_DEL(requests, r);
-        pthread_mutex_unlock(&requests_lock);
-
+        pthread_rwlock_unlock(&requests_rwlock);
+        
         log_trace("[XX][%d] %d %d %ld %ld", r->id, r->operation, r->file_handle, r->offset, r->size);
 
         // Issue the request to the filesystem
@@ -151,20 +149,21 @@ void *server_dispatcher(void *p) {
             pq_item->value = r->id;
 
             pqueue_insert(pq, pq_item);
-
+//int max_check_agg = 0;
             fwd_list_for_each_entry_safe(next_ready_r, tmp, &ready_queue, list) {
+//if (max_check_agg++ >= MAX_BATCH_SIZE) break; 
                 // Fetch the next request ID
                 next_request_id = next_ready_r->id;
 
                 // Get the request
-                pthread_mutex_lock(&requests_lock);
+                pthread_rwlock_rdlock(&requests_rwlock);
                 HASH_FIND_INT(requests, &next_request_id, next_r);
                 
                 if (next_r == NULL) {
                     log_error("2. unable to find the request");
                 }
-                pthread_mutex_unlock(&requests_lock);
-
+                pthread_rwlock_unlock(&requests_rwlock);
+                
                 // Check if it is for the same filehandle
                 if (r->operation == next_r->operation && r->file_handle == next_r->file_handle) {
                     node_t *pq_item = malloc(sizeof(node_t));
@@ -201,15 +200,15 @@ void *server_dispatcher(void *p) {
             next = pqueue_pop(pq);
 
             // We need to get the request to be our start
-            pthread_mutex_lock(&requests_lock);
+            pthread_rwlock_rdlock(&requests_rwlock);
             log_trace("next->priority = %d, next->value = %d", next->priority, next->value);
             HASH_FIND_INT(requests, &next->value, r);
 
             if (r == NULL) {
                 log_error("3. unable to find the request");
             };
-            pthread_mutex_unlock(&requests_lock);
-
+            pthread_rwlock_unlock(&requests_rwlock);
+            
             log_trace("r->id = %ld, r->offset = %ld, r->size = %ld", r->id, r->offset, r->size);
 
             free(next);
@@ -237,13 +236,13 @@ void *server_dispatcher(void *p) {
 
                 if (next != NULL) {
                     // We need to get the next request according to the priority
-                    pthread_mutex_lock(&requests_lock);
+                    pthread_rwlock_rdlock(&requests_rwlock);
                     HASH_FIND_INT(requests, &next->value, next_r);
 
                     if (next_r == NULL) {
                         log_error("4. unable to find the request %lld", next->value);
                     };
-                    pthread_mutex_unlock(&requests_lock);
+                    pthread_rwlock_unlock(&requests_rwlock);
 
                     free(next);
                     
@@ -325,20 +324,21 @@ void *server_dispatcher(void *p) {
             pq_item->value = r->id;
 
             pqueue_insert(pq, pq_item);
-
+//int max_check_agg = 0;
             fwd_list_for_each_entry_safe(next_ready_r, tmp, &ready_queue, list) {
+//if (max_check_agg++ >= MAX_BATCH_SIZE) break;
                 // Fetch the next request ID
                 next_request_id = next_ready_r->id;
 
                 // Get the request
-                pthread_mutex_lock(&requests_lock);
+                pthread_rwlock_rdlock(&requests_rwlock);
                 HASH_FIND_INT(requests, &next_request_id, next_r);
                 
                 if (next_r == NULL) {
                     log_error("2. unable to find the request");
                 }
-                pthread_mutex_unlock(&requests_lock);
-
+                pthread_rwlock_unlock(&requests_rwlock);
+                
                 // Check if it is for the same filehandle
                 if (r->operation == next_r->operation && r->file_handle == next_r->file_handle) {
                     node_t *pq_item = malloc(sizeof(node_t));
@@ -375,15 +375,15 @@ void *server_dispatcher(void *p) {
             next = pqueue_pop(pq);
 
             // We need to get the request to be our start
-            pthread_mutex_lock(&requests_lock);
+            pthread_rwlock_rdlock(&requests_rwlock);
             log_trace("next->priority = %d, next->value = %d", next->priority, next->value);
             HASH_FIND_INT(requests, &next->value, r);
 
             if (r == NULL) {
                 log_error("3. unable to find the request");
             };
-            pthread_mutex_unlock(&requests_lock);
-
+            pthread_rwlock_unlock(&requests_rwlock);
+            
             log_trace("r->id = %ld, r->offset = %ld, r->size = %ld", r->id, r->offset, r->size);
 
             free(next);
@@ -406,14 +406,14 @@ void *server_dispatcher(void *p) {
 
                 if (next != NULL) {
                     // We need to get the next request according to the priority
-                    pthread_mutex_lock(&requests_lock);
+                    pthread_rwlock_rdlock(&requests_rwlock);
                     HASH_FIND_INT(requests, &next->value, next_r);
 
                     if (next_r == NULL) {
                         log_error("4. unable to find the request %lld", next->value);
                     };
-                    pthread_mutex_unlock(&requests_lock);
-
+                    pthread_rwlock_unlock(&requests_rwlock);
+                    
                     free(next);
                     
                     // See if we can actually aggregate them
@@ -477,3 +477,4 @@ void *server_dispatcher(void *p) {
 
     return NULL;
 }
+

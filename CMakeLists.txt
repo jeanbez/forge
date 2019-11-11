@@ -11,6 +11,10 @@ option(DEBUG "Enable debug messages for development purposes" OFF)
 option(PVFS "Enable the PVFS interface to send the requests" OFF)
 option(ORANGEFS "Enable the OrangeFS interface to send the requests" OFF)
 
+set(PVFS OFF)
+set(DEBUG OFF)
+set(STATISTICS OFF)
+
 if(DEBUG)
 	add_definitions(-DDEBUG=1)
 	set(CMAKE_BUILD_TYPE Debug)
