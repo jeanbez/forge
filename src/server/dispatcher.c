@@ -38,7 +38,7 @@ static void print_node(FILE *out, void *a) {
  * Dispatch the request to the file system once they have been scheduled.
  */
 void *server_dispatcher(void *p) {
-    int request_id, next_request_id, last_request;
+    int request_id, next_request_id, last_request, max_check_aggregated;
 
     struct forwarding_request *r;
     struct forwarding_request *next_r;
@@ -149,9 +149,14 @@ void *server_dispatcher(void *p) {
             pq_item->value = r->id;
 
             pqueue_insert(pq, pq_item);
-//int max_check_agg = 0;
+
+            max_check_aggregated = 0;
+            
             fwd_list_for_each_entry_safe(next_ready_r, tmp, &ready_queue, list) {
-//if (max_check_agg++ >= MAX_BATCH_SIZE) break; 
+                if (max_check_aggregated++ >= MAX_BATCH_SIZE) {
+                    break;
+                }
+
                 // Fetch the next request ID
                 next_request_id = next_ready_r->id;
 
@@ -324,9 +329,14 @@ void *server_dispatcher(void *p) {
             pq_item->value = r->id;
 
             pqueue_insert(pq, pq_item);
-//int max_check_agg = 0;
+
+            max_check_aggregated = 0;
+            
             fwd_list_for_each_entry_safe(next_ready_r, tmp, &ready_queue, list) {
-//if (max_check_agg++ >= MAX_BATCH_SIZE) break;
+                if (max_check_aggregated++ >= MAX_BATCH_SIZE) {
+                    break;
+                }
+
                 // Fetch the next request ID
                 next_request_id = next_ready_r->id;
 
