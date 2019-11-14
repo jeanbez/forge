@@ -112,13 +112,6 @@ Each I/O forwarding node spans multiple threads to handle incoming messages, req
 .. doxygenfunction:: server_dispatcher
    :project: forge
 
-Statistics
-----------
-
-.. doxygenstruct:: forwarding_statistics
-   :project: forge
-   :members:
-
 Acknowledgments
 ===============
 

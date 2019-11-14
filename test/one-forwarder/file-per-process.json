@@ -1,6 +1,6 @@
 {
     "forwarders": 1,
-    "handlers": 16,
+    "handlers": 1,
     "dispatchers": 16,
     "path": "file",
     "number_of_files": "individual",

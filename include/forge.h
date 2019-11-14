@@ -14,7 +14,7 @@
 #define ERROR_AGIOS_REQUEST 70003					/*!< Error when sending a request to AGIOS. */
 #define ERROR_SEEK_FAILED 70004						/*!< Error when seeking a position in file. */
 #define ERROR_WRITE_FAILED 70005					/*!< Error when issuing a write operation. */
-#define ERROR_READ_FAILED 70006								/*!< Error when issuing a read operation. */
+#define ERROR_READ_FAILED 70006						/*!< Error when issuing a read operation. */
 #define ERROR_INVALID_REQUEST_ID 70007				/*!< Invalid request ID code. */
 #define ERROR_INVALID_PATTERN 70008					/*!< Invalid access pattern to emulate. */
 #define ERROR_INVALID_SETUP 70009					/*!< Invalid emulation setup. */
@@ -28,6 +28,7 @@
 #define ERROR_PVFS_OPEN 700017						/*!< Error when operning a file using PVFS. */
 #define ERROR_VALIDATION_FAILED 700018				/*!< Validation failed. */
 #define ERROR_AGIOS_INITIALIZATION 700019 			/*!< Unable to initialize AGIOS, check for the configuration file. */
+#define ERROR_FAILED_TO_LOAD_JSON 700020		 	/*!< Unable to read the JSON file. */
 
 #define READ 0										/*!< Identify read operations. */
 #define WRITE 1										/*!< Identify write operations. */
@@ -61,13 +62,13 @@
  * A structure to hold a client request.
  */ 
 struct request {
-	char file_name[255];			/*!< File name required for open operations. */
-	int file_handle;				/*!< Once the file has been open, store the handle for future operations. */
+	char file_name[255];							/*!< File name required for open operations. */
+	int file_handle;								/*!< Once the file has been open, store the handle for future operations. */
 
-	int operation;					/*!< Identify the I/O operation. */
+	int operation;									/*!< Identify the I/O operation. */
 
-	unsigned long offset;			/*!< Offset of the request in the file. */
-	unsigned long size;				/*!< Size of the request. */
+	unsigned long offset;							/*!< Offset of the request in the file. */
+	unsigned long size;								/*!< Size of the request. */
 };
 
 /**

@@ -2,8 +2,12 @@
 #include <agios.h>
 #include <pthread.h>
 #include <errno.h>
+#include <unistd.h>
+
+#ifdef EXPLAIN
 #include <libexplain/pread.h>
 #include <libexplain/pwrite.h>
+#endif
 
 #include "forge.h"
 #include "log.h"

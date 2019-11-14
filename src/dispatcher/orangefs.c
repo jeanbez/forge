@@ -63,7 +63,7 @@ void dispatch_read(struct aggregated_request *aggregated) {
     }
     #endif
 
-    callback_read(aggregated);
+    thpool_add_work(thread_pool, (void*)callback_read, aggregated);
 
     PVFS_Request_free(&mem_req);
     PVFS_Request_free(&file_req);
@@ -124,7 +124,7 @@ void dispatch_write(struct aggregated_request *aggregated) {
     }
     #endif
 
-    callback_write(aggregated);
+    thpool_add_work(thread_pool, (void*)callback_write, aggregated);
 
     PVFS_Request_free(&mem_req);
 }

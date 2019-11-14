@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 project(forge)
 
 set(warnings "-Wall")
-set(CMAKE_C_FLAGS "-Wall")
+set(CMAKE_C_FLAGS "-Wall -O2 -g")
 
 # Add the cmake folder so the FindSphinx module is found
 set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
@@ -48,6 +48,8 @@ if(PVFS)
 		src/server/listener.c
 		src/server/handler.c
 		src/server/dispatcher.c
+		src/handler/read.c
+		src/handler/write.c
 		src/dispatcher/orangefs.c
 	)
 else()
@@ -63,6 +65,8 @@ else()
 		src/server/listener.c
 		src/server/handler.c
 		src/server/dispatcher.c
+		src/handler/read.c
+		src/handler/write.c
 		src/dispatcher/posix.c
 	)
 endif()
@@ -74,7 +78,10 @@ target_link_libraries(${PROJECT_NAME} ${LIBS} gsl)
 target_link_libraries(${PROJECT_NAME} ${LIBS} gslcblas)
 target_link_libraries(${PROJECT_NAME} ${LIBS} m)
 target_link_libraries(${PROJECT_NAME} ${LIBS} pthread)
-target_link_libraries(${PROJECT_NAME} ${LIBS} explain)
+
+if(EXPLAIN)
+	target_link_libraries(${PROJECT_NAME} ${LIBS} explain)
+endif(EXPLAIN)
 
 if(PVFS)
 	target_link_libraries(${PROJECT_NAME} /opt/orangefs/lib/libpvfs2.so)

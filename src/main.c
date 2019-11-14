@@ -37,7 +37,7 @@ static int jsoneq(const char *json, jsmntok_t *tok, const char *s) {
 }
 
 int main(int argc, char *argv[]) {
-    int i, n, my_forwarding_server, ack, request_id;
+    int i, n, my_forwarding_server, ack, request_id, ret;
     int provided;
 
     struct timespec start_time, end_time;
@@ -130,7 +130,13 @@ int main(int argc, char *argv[]) {
     }
 
     // Copy all the text into the configuration
-    fread(configuration, sizeof(char), bytes, json_file);
+    ret = fread(configuration, sizeof(char), bytes, json_file);
+
+    if (ret < 0) {
+        log_error("Failed to load JSON: %d", ret);
+        
+        MPI_Abort(MPI_COMM_WORLD, ERROR_FAILED_TO_LOAD_JSON);
+    }
 
     // Closes the JSON configuration file
     fclose(json_file);
@@ -140,7 +146,7 @@ int main(int argc, char *argv[]) {
 
     jsmn_init(&parser);
 
-    int ret = jsmn_parse(&parser, configuration, strlen(configuration), tokens, sizeof(tokens) / sizeof(tokens[0]));
+    ret = jsmn_parse(&parser, configuration, strlen(configuration), tokens, sizeof(tokens) / sizeof(tokens[0]));
     if (ret < 0) {
         log_error("Failed to parse JSON: %d", ret);
         
@@ -157,25 +163,25 @@ int main(int argc, char *argv[]) {
     // Simulation configuration
     char simulation_path[255] = "";
 
-    char *simulation_base_path;
-    char *simulation_files_name;
-    char *simulation_spatiality_name;
+    char *simulation_base_path = "";
+    char *simulation_files_name = "";
+    char *simulation_spatiality_name = "";
 
     char simulation_map_file[255] = "";
     char simulation_time_file[255] = "";
     char simulation_stats_file[255] = "";
 
-    int simulation_handlers;
-    int simulation_dispatchers;
+    int simulation_handlers = 0;
+    int simulation_dispatchers = 0;
 
-    int simulation_files;
-    int simulation_spatiality;
+    int simulation_files = 0;
+    int simulation_spatiality = 0;
 
     int simulation_validation = 0;
 
-    unsigned long simulation_request_size;
-    unsigned long simulation_total_size;
-    unsigned long simulation_rank_size;
+    unsigned long simulation_request_size = 0;
+    unsigned long simulation_total_size = 0;
+    unsigned long simulation_rank_size = 0;
 
     unsigned long b;
 

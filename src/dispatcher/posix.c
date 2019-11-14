@@ -8,17 +8,19 @@ void dispatch_read(struct aggregated_request *aggregated) {
     int rc = pread(aggregated->r->file_handle, aggregated->buffer, aggregated->size, aggregated->r->offset);
     
     if (rc != aggregated->size) {
+        #ifdef EXPLAIN
         int err = errno;
         char message[3000];
 
         explain_message_errno_pread(message, sizeof(message), err, aggregated->r->file_handle, aggregated->buffer, aggregated->size, aggregated->r->offset);
         log_error("---> %s\n", message);
+        #endif
 
         log_error("r->filehandle = %ld, r->size = %ld, r->offset = %ld", aggregated->r->file_handle, aggregated->size, aggregated->r->offset);
         log_error("single read %d of expected %d", rc, aggregated->size);
     }
 
-    callback_read(aggregated);
+    thpool_add_work(thread_pool, (void*)callback_read, aggregated);
 }
 
 /**
@@ -29,17 +31,19 @@ void dispatch_write(struct aggregated_request *aggregated) {
     int rc = pwrite(aggregated->r->file_handle, aggregated->buffer, aggregated->size, aggregated->r->offset);
 
     if (rc != aggregated->size) {
+        #ifdef EXPLAIN
         int err = errno;
         char message[3000];
         
         explain_message_errno_pwrite(message, sizeof(message), err, aggregated->r->file_handle, aggregated->buffer, aggregated->size, aggregated->r->offset);
         log_error("---> %s\n", message);
+        #endif
 
         log_error("r->filehandle = %ld, r->size = %ld, r->offset = %ld", aggregated->r->file_handle, aggregated->size, aggregated->r->offset);
         log_error("single write %d of expected %d", rc, aggregated->size);
     }
 
-    callback_write(aggregated);
+    thpool_add_work(thread_pool, (void*)callback_write, aggregated);
 }
 
 /**
