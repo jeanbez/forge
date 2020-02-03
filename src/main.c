@@ -5,8 +5,6 @@
 #include "log.h"
 #include "thpool.h"
 
-#include <cjson/cJSON.h>
-
 #include "server/listener.h"
 #include "server/handler.h"
 #include "server/dispatcher.h"
