@@ -12,7 +12,7 @@
 #include <gsl/gsl_sort.h>
 #include <gsl/gsl_statistics.h>
 
-#include "jsmn.h"
+#include "cJSON.h"
 
 unsigned long long int generate_identifier();
 

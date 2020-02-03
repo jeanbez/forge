@@ -52,7 +52,7 @@ if(PVFS)
 	set( FORGE_CMAKE_SOURCES
 		src/main.c
 		src/scheduler.c
-		src/jsmn.c
+		src/cJSON.c
 		src/log.c
 		src/fwd_list.c
 		src/pqueue.c
@@ -69,7 +69,7 @@ else()
 	set( FORGE_CMAKE_SOURCES
 		src/main.c
 		src/scheduler.c
-		src/jsmn.c
+		src/cJSON.c
 		src/log.c
 		src/fwd_list.c
 		src/pqueue.c
@@ -92,7 +92,6 @@ target_link_libraries(${PROJECT_NAME} ${LIBS} pthread)
 target_link_libraries(${PROJECT_NAME} ${LIBS} gslcblas)
 target_link_libraries(${PROJECT_NAME} ${LIBS} m)
 target_link_libraries(${PROJECT_NAME} ${LIBS} pthread)
-target_link_libraries(${PROJECT_NAME} ${LIBS} cjson)
 
 if(EXPLAIN)
 	target_link_libraries(${PROJECT_NAME} ${LIBS} explain)
