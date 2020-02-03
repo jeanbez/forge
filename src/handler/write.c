@@ -1,13 +1,25 @@
 #include "handler/write.h"
 
 int handle_write(struct forwarding_request *r) {
+    int ret;
       char fh_str[255];
 
       MPI_Request request;
       MPI_Status status;
 
       // Make sure the buffer can store the message
+    // Make sure the buffer can store the message
+    if (simulation_direct_io == 1) {
+        ret = posix_memalign((void**) &r->buffer, getpagesize(), r->size);
+
+        if (ret != 0) {
+            log_error("unable to allocate aligned memory for O_DIRECT");
+
+            MPI_Abort(MPI_COMM_WORLD, ERROR_MEMORY_ALLOCATION);
+        }
+    } else {
       r->buffer = calloc(r->size, sizeof(char));
+    }
 
       log_debug("waiting to receive the buffer [id=%ld]...", r->id);
 

@@ -1,132 +1,158 @@
 #include "dispatcher/orangefs.h"
 
+int compare_offsets(const void* a, const void* b) {
+    struct forwarding_request request_a = *(const struct forwarding_request*) a;
+    struct forwarding_request request_b = *(const struct forwarding_request*) b;
+
+    return (request_a.offset > request_b.offset); 
+}
 /**
- * Dispatch a PVFS read request.
+ * Dispatch a PVFS request.
  * @param *aggregated A pointer to the aggregated request.
  */
-void dispatch_read(struct aggregated_request *aggregated) {
-    int ret;
+void dispatch_operation(struct aggregated_request *aggregated) {
+    int i, ret;
+    const void* buffer = "";
+    uint64_t offset = 0;
 
     // PVFS variables needed for the direct integration
-    PVFS_offset file_req_offset;
-    PVFS_Request file_req, mem_req;
+    PVFS_Request mem_req, file_req;
     PVFS_sysresp_io resp_io;
     PVFS_credentials credentials;
+    PVFS_size * displacements, * offsets;
+
+    int32_t * sizes = (int32_t *) malloc(sizeof(int32_t) * aggregated->count);
+
+    for (i = 0; i < aggregated->count; i++) {
+        sizes[i] = aggregated->requests[i].size;
+    }
 
     PVFS_util_gen_credentials(&credentials);
 
-    // Buffer is contiguous in memory because of calloc
+    if (aggregated->count == 1) {
     ret = PVFS_Request_contiguous(
-        aggregated->size,
-        PVFS_CHAR,
+            sizes[0],
+            PVFS_BYTE,
         &mem_req
     );
     
     if (ret < 0) {
-        log_error("READ PVFS_Request_contiguous in memory failed");
+            log_error("PVFS_Request_contiguous failure");
     }
 
-    file_req_offset = aggregated->r->offset;
+        buffer = (void *) aggregated->requests[0].buffer;
+        offset = aggregated->requests[0].offset;
 
     ret = PVFS_Request_contiguous(
-        aggregated->size,
-        PVFS_CHAR,
+            sizes[0],
+            PVFS_BYTE,
         &file_req
     );
     
-    struct opened_handles *h = NULL;
-
-    pthread_rwlock_rdlock(&handles_rwlock);
-    HASH_FIND(hh_pvfs, opened_pvfs_files, &aggregated->r->file_handle, sizeof(int), h);
-        
-    if (h == NULL) {
-        log_error("unable to find the handle");
-    }
-    pthread_rwlock_unlock(&handles_rwlock);
-    
-    ret = PVFS_sys_read(
-        h->pvfs_file.ref, 
-        file_req, 
-        file_req_offset,
-        aggregated->buffer, 
-        mem_req, 
-        &credentials, 
-        &resp_io, 
-        NULL
-    );
-
-    #ifdef DEBUG
-    if (ret == 0) {                
-        log_debug("%ld\n", resp_io.total_completed);
+        if (ret < 0) {
+            log_error("PVFS_Request_contiguous failure");
+        }
     } else {
-        PVFS_perror("PVFS_sys_read", ret);
+        log_debug("sort the offsets");
+
+        /*for (i = 0; i < aggregated->count; i++) {
+            log_info("<---------------- %ld (id = %ld)", aggregated->requests[i].offset, aggregated->requests[i].id);
+        }*/
+        
+        // List of requests to PVFS must be ordered by offset (ascending)6fcf
+        qsort(&aggregated->requests, aggregated->count, sizeof(struct forwarding_request), compare_offsets);
+
+        /*for (i = 0; i < aggregated->count; i++) {
+            log_info("----------------> %ld (id = %ld)", aggregated->requests[i].offset, aggregated->requests[i].id);
     }
-    #endif
+    
+        log_debug("aggregated->count = %d", aggregated->count);
 
-    thpool_add_work(thread_pool, (void*)callback_read, aggregated);
+        for (i = 0; i < aggregated->count; i++) {
+            log_info("operation = %d -> index[%d] size = %lld, offset = %lld", aggregated->operation, i, aggregated->requests[i].size, aggregated->requests[i].offset);
+        }*/
 
-    PVFS_Request_free(&mem_req);
-    PVFS_Request_free(&file_req);
+        displacements = malloc(sizeof(PVFS_size) * aggregated->count);
+
+        for (i = 0; i < aggregated->count; ++i) {
+            displacements[i] = (intptr_t) aggregated->requests[i].buffer;
+    }
+
+        offsets = malloc(sizeof(PVFS_size) * aggregated->count);
+
+        for (i = 0; i < aggregated->count; ++i) {
+            offsets[i] = aggregated->requests[i].offset;
 }
 
-/**
- * Dispatch a PVFS write request.
- * @param *aggregated A pointer to the aggregated request.
- */
-void dispatch_write(struct aggregated_request *aggregated) {
-    int ret;
+        ret = PVFS_Request_hindexed(
+            aggregated->count,
+            sizes,
+            displacements,
+            PVFS_BYTE,
+            &mem_req
+        );
 
-    // PVFS variables needed for the direct integration
-    PVFS_Request mem_req;
-    PVFS_sysresp_io resp_io;
-    PVFS_credentials credentials;
+        if (ret < 0) {
+            log_error("PVFS_Request_indexed failure");
+        }
 
-    PVFS_util_gen_credentials(&credentials);
+        free(displacements);
 
-    // Buffer is contiguous in memory because of calloc
-    ret = PVFS_Request_contiguous(
-        aggregated->size,
-        PVFS_CHAR,
-        &mem_req
+        buffer = NULL;
+
+        ret = PVFS_Request_hindexed(
+            aggregated->count,
+            sizes,
+            offsets,
+            PVFS_BYTE,
+            &file_req
     );
 
     if (ret < 0) {
-        log_error("WRITE PVFS_Request_contiguous in memory failed");
+            log_error("READ PVFS_Request_indexed failure");
+        }
     }
 
     struct opened_handles *h = NULL;
 
     pthread_rwlock_rdlock(&handles_rwlock);
-    HASH_FIND(hh_pvfs, opened_pvfs_files, &aggregated->r->file_handle, sizeof(int), h);
+    HASH_FIND(hh_pvfs, opened_pvfs_files, &aggregated->file_handle, sizeof(int), h);
         
     if (h == NULL) {
         log_error("unable to find the handle");
     }
     pthread_rwlock_unlock(&handles_rwlock);
     
-    log_trace("offset = {%ld} buffer = {%s}\n", aggregated->r->offset, aggregated->buffer);
-    ret = PVFS_sys_write(
+    ret = PVFS_sys_io(
         h->pvfs_file.ref, 
-        PVFS_BYTE, 
-        aggregated->r->offset,
-        aggregated->buffer,
+        file_req, 
+        offset,
+        (void *) buffer, 
         mem_req, 
         &credentials, 
         &resp_io, 
+        aggregated->operation,
         NULL
     );
 
     #ifdef DEBUG
     if (ret == 0) {
-        log_debug("%ld\n", resp_io.total_completed);
+        log_debug("PVFS read %ld bytes\n", resp_io.total_completed);
     } else {
-        PVFS_perror("PVFS_sys_write", ret);
+        PVFS_perror("PVFS_sys_read", ret);
     }
     #endif
 
+    if (aggregated->operation == PVFS_IO_WRITE) {
     thpool_add_work(thread_pool, (void*)callback_write, aggregated);
+    } else {
+        thpool_add_work(thread_pool, (void*)callback_read, aggregated);
+    }
 
     PVFS_Request_free(&mem_req);
+    PVFS_Request_free(&file_req);
+
+    free(sizes);
 }
 
 /**
@@ -137,55 +163,35 @@ void callback_read(struct aggregated_request *aggregated) {
     char fh_str[255];
     struct forwarding_request *current_r;
 
-    #ifdef DEBUG
-    char *tmp;
-    #endif
-
-    unsigned long int offset = 0;
 
     // Iterate over the aggregated request, and reply to their clients
     for (int i = 0; i < aggregated->count; i++) {
         // Get and remove the request from the list    
-        log_debug("aggregated[%d/%d] = %ld", i + 1, aggregated->count, aggregated->ids[i]);
+        log_debug("aggregated[%d/%d] = %ld", i + 1, aggregated->count, aggregated->requests[i].id);
 
         pthread_rwlock_wrlock(&requests_rwlock);
-        HASH_FIND_INT(requests, &aggregated->ids[i], current_r);
+        HASH_FIND_INT(requests, &aggregated->requests[i].id, current_r);
 
         if (current_r == NULL) {
-            log_error("5. unable to find the request %lld", aggregated->ids[i]);
+            log_error("5. unable to find the request %lld", aggregated->requests[i].id);
         }
         HASH_DEL(requests, current_r);
         pthread_rwlock_unlock(&requests_rwlock);
         
-        #ifdef DEBUG
-        log_trace("AGGREGATED={%s}", aggregated->buffer);
+        log_trace("operation = read, rank = %ld, request = %ld, buffer = %s, offset = %ld (real = %ld), size = %ld", current_r->rank, current_r->id, current_r->buffer, current_r->offset, current_r->offset, current_r->size);
         
-        tmp = calloc(current_r->size, sizeof(char));
-
-        memcpy(tmp, &aggregated->buffer[offset], current_r->size * sizeof(char));
-
-        log_debug("rank = %ld, request = %ld, buffer = %s, offset = %ld (real = %ld), size = %ld", current_r->rank, current_r->id, tmp, offset, current_r->offset, current_r->size);
-        #endif
-
-        MPI_Send(&aggregated->buffer[offset], current_r->size, MPI_CHAR, current_r->rank, TAG_BUFFER, MPI_COMM_WORLD);
-
-        #ifdef DEBUG
-        free(tmp);
-        #endif
+        MPI_Send(current_r->buffer, current_r->size, MPI_CHAR, current_r->rank, current_r->id, MPI_COMM_WORLD);
 
         // Release the AGIOS request
         sprintf(fh_str, "%015d", current_r->file_handle);
 
         agios_release_request(fh_str, current_r->operation, current_r->size, current_r->offset, 0, current_r->size); // 0 is a sub-request
 
-        // Update to the next offset
-        offset += current_r->size;
-
-        // Free the request (not the buffer as it was not allocated)
+        // Free the buffer and the request
+        free(current_r->buffer);
         free(current_r);
     }
 
-    free(aggregated->buffer);
     free(aggregated);
 }
 
@@ -201,16 +207,17 @@ void callback_write(struct aggregated_request *aggregated) {
     // Iterate over the aggregated request, and reply to their clients
     for (int i = 0; i < aggregated->count; i++) {
         // Get and remove the request from the list    
-        log_debug("aggregated[%d/%d] = %ld", i + 1, aggregated->count, aggregated->ids[i]);
+        log_debug("aggregated[%d/%d] = %ld", i + 1, aggregated->count, aggregated->requests[i].id);
 
         pthread_rwlock_wrlock(&requests_rwlock);
-        HASH_FIND_INT(requests, &aggregated->ids[i], current_r);
+        HASH_FIND_INT(requests, &aggregated->requests[i].id, current_r);
 
         if (current_r == NULL) {
-            log_error("5. unable to find the request %lld", aggregated->ids[i]);
+            log_error("5. unable to find the request %lld", aggregated->requests[i].id);
         }
         HASH_DEL(requests, current_r);
         pthread_rwlock_unlock(&requests_rwlock);
+        log_trace("operation = write, rank = %ld, request = %ld, buffer = %s, offset = %ld (real = %ld), size = %ld", current_r->rank, current_r->id, current_r->buffer, current_r->offset, current_r->offset, current_r->size);
 
         MPI_Send(&ack, 1, MPI_INT, current_r->rank, TAG_ACK, MPI_COMM_WORLD); 
 
@@ -219,12 +226,11 @@ void callback_write(struct aggregated_request *aggregated) {
 
         agios_release_request(fh_str, current_r->operation, current_r->size, current_r->offset, 0, current_r->size); // 0 is a sub-request
 
-        // Free the request (not the buffer as it was not allocated)
+        // Free the buffer and the request
         free(current_r->buffer);
         free(current_r);
     }
 
-    free(aggregated->buffer);
     free(aggregated);
 }
 
@@ -234,7 +240,6 @@ void callback_write(struct aggregated_request *aggregated) {
  * @param *credentials A pointer to the credtials object to access PVFS.
  */
 int generic_open(pvfs2_file_object *obj, PVFS_credential *credentials) {
-    struct stat stat_buf;
 
     PVFS_sysresp_lookup resp_lookup;
     PVFS_sysresp_getattr resp_getattr;

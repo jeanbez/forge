@@ -2,10 +2,78 @@
     "forwarders": 1,
     "handlers": 1,
     "dispatchers": 16,
-    "path": "file",
-    "number_of_files": "individual",
-    "spatiality": "contiguous",
-    "total_size": 134217728,
-    "request_size": 32768,
-    "validation": 1
+    "phases": [
+        {
+            "repetitions": 1,
+            "patterns": [
+                {
+                    "path": "/tmp/file",
+                    "operation": "open",
+                    "number_of_files": "individual"
+                }
+            ]
+        },
+        {
+            "repetitions": 1,
+            "patterns": [
+                {
+                    "path": "/tmp/file",
+                    "number_of_files": "individual",
+                    "spatiality": "contiguous",
+                    "total_size": 134217728,
+                    "request_size": 32768,
+                    "validation": 0,
+                    "operation": "write",
+                    "direct_io": 0,
+                    "stone_wall": 60
+                }
+            ]
+        },
+        {
+            "repetitions": 1,
+            "patterns": [
+                {
+                    "path": "/tmp/file",
+                    "operation": "close",
+                    "number_of_files": "individual"
+                }
+            ]
+        },
+        {
+            "repetitions": 1,
+            "patterns": [
+                {
+                    "path": "/tmp/file",
+                    "operation": "open",
+                    "number_of_files": "individual"
+                }
+            ]
+        },
+        {
+            "repetitions": 1,
+            "patterns": [
+                {
+                    "path": "/tmp/file",
+                    "number_of_files": "individual",
+                    "spatiality": "contiguous",
+                    "total_size": 134217728,
+                    "request_size": 32768,
+                    "validation": 0,
+                    "operation": "read",
+                    "direct_io": 0,
+                    "stone_wall": 60
+                }
+            ]
+        },
+        {
+            "repetitions": 1,
+            "patterns": [
+                {
+                    "path": "/tmp/file",
+                    "operation": "close",
+                    "number_of_files": "individual"
+                }
+            ]
+        }
+    ]
 }

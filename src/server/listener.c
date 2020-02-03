@@ -52,6 +52,7 @@ void *server_listener(void *p) {
                 // We need to cancel the MPI_Irecv
                 MPI_Cancel(&request);
 
+                MPI_Request_free(&request);
                 MPI_Type_free(&request_datatype);
 
                 return NULL;

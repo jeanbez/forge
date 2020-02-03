@@ -29,6 +29,8 @@
 #define ERROR_VALIDATION_FAILED 700018				/*!< Validation failed. */
 #define ERROR_AGIOS_INITIALIZATION 700019 			/*!< Unable to initialize AGIOS, check for the configuration file. */
 #define ERROR_FAILED_TO_LOAD_JSON 700020		 	/*!< Unable to read the JSON file. */
+#define ERROR_INVALID_OPERATION 700021				/*!< Invalid or no operation was defined. */
+#define ERROR_STONE_WALL_SETUP 700022				/*!< Invalid stone wall setup. */
 
 #define READ 0										/*!< Identify read operations. */
 #define WRITE 1										/*!< Identify write operations. */
@@ -39,14 +41,14 @@
 #define MAX_BUFFER_SIZE (1 * 1024 * 1024 * 1024)	/*!< Maximum allowed buffer size for aggregated requests. */
 #define MAX_BATCH_SIZE 16							/*!< Maximum number of contiguous requests that should be merged together before issuing the request. */
 #define MAX_QUEUE_ELEMENTS 1024						/*!< Maximum nuber of requests in the queue. */
+#define MAX_PATTERNS 64
 
 #define FWD_MAX_HANDLER_THREADS 128					/*!< Maximum number of threads to handle the incoming requests. */
 #define FWD_MAX_PROCESS_THREADS 128					/*!< Maximum number of threads to issue and process the requests. */
 
 #define TAG_REQUEST 10001							/*!< MPI tag to identify requests. */
-#define TAG_BUFFER 10002							/*!< MPI tag to identify buffers. */
-#define TAG_ACK 10003								/*!< MPI tag to identify acknownledgment. */
-#define TAG_HANDLE 10004							/*!< MPI tag to identify a file handle. */
+#define TAG_ACK 10002								/*!< MPI tag to identify acknownledgment. */
+#define TAG_HANDLE 10003							/*!< MPI tag to identify a file handle. */
 
 #define INDIVIDUAL 0								/*!< Indicate access to individual files, i.e. file per process. */
 #define SHARED 1									/*!< Indicate access to shared files. */
@@ -57,6 +59,32 @@
 #define TIMEOUT 1									/*!< Timeout (in seconds). */
 
 #define AGIOS_CONFIGURATION "/tmp/agios.conf"		/*<! Path to the AGIOS configuration file. */
+/**
+ * A structure to hold an I/O phase
+ */
+struct pattern {
+	char path[255];
+
+	int number_of_files;
+	int spatiality;
+	int operation;
+
+	unsigned long int total_size;
+	unsigned long int request_size;
+
+	int validation;
+	int direct_io;
+	int stone_wall;
+};
+
+struct phase {
+	int repetitions;
+	int total;
+
+	struct pattern *patterns[MAX_PATTERNS];
+	
+	struct fwd_list_head list;						/*!< To handle the request while in the incoming queue. */
+};
 
 /**
  * A structure to hold a client request.
@@ -111,12 +139,12 @@ struct ready_request {
 struct aggregated_request {
 	int count;										/*!< The number of aggregated requests. */
 	int size;										/*!< The aggregated size of the requests. */
-	struct forwarding_request *r;   				/*!< The baseline forwarding request, i.e., the first one. */
+	int file_handle;   								/*!< The file handle for this request baseline. */
+	int operation;
 
-	unsigned long long int ids[MAX_BATCH_SIZE];		/*!< A list with all the requests ID that compose this aggregated request. */
-
-	char *buffer;									/*!< The aggreated buffer used by this request. */
+	struct forwarding_request requests[MAX_BATCH_SIZE];
 };
+//int compare_offsets(struct forwarding_request a, struct forwarding_request b);
 
 // Struture to keep track of open file handles
 struct opened_handles {
@@ -162,9 +190,11 @@ pthread_mutex_t ready_queue_mutex;
 pthread_cond_t ready_queue_signal;
 
 threadpool thread_pool;
+struct fwd_list_head phases;
 
 struct fwd_list_head incoming_queue;
 struct fwd_list_head ready_queue;
+struct forwarding_request *requests;
 
 // Controle the shutdown signal
 int shutdown;

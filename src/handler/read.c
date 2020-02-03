@@ -1,7 +1,23 @@
 #include "handler/read.h"
 
 int handle_read(struct forwarding_request *r) {
+    int ret;
       char fh_str[255];
+    // Make sure the buffer can store the message
+    if (simulation_direct_io == 1) {
+        ret = posix_memalign((void**) &r->buffer, getpagesize(), r->size);
+
+        if (ret != 0) {
+            log_error("unable to allocate aligned memory for O_DIRECT");
+
+            MPI_Abort(MPI_COMM_WORLD, ERROR_MEMORY_ALLOCATION);
+        }
+    } else {
+        r->buffer = calloc(r->size, sizeof(char));
+    }
+
+    // Send ACK to receive the buffer with the request ID
+    MPI_Send(&r->id, 1, MPI_INT, r->rank, TAG_ACK, MPI_COMM_WORLD); 
 
       // Include the request into the hash list
       pthread_rwlock_wrlock(&requests_rwlock);

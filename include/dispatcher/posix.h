@@ -12,6 +12,7 @@
 #include "forge.h"
 #include "log.h"
 
+void dispatch_operation(struct aggregated_request *aggregated);
 void dispatch_read(struct aggregated_request *aggregated);
 void dispatch_write(struct aggregated_request *aggregated);
 

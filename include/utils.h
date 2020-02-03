@@ -1,7 +1,9 @@
+#pragma once
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
 #include <limits.h>
+#include <unistd.h>
 
 #define safe_free(pointer, id) safe_memory_free((void **) &(pointer), id)
 
@@ -20,3 +22,9 @@ unsigned long long int generate_identifier();
 int generate_pfs_identifier();
 
 void safe_memory_free(void ** pointer_address, char *id);
+void set_page_size();
+size_t page_size;
+
+int simulation_validation;
+int simulation_stone_wall;
+int simulation_direct_io;

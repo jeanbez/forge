@@ -49,3 +49,7 @@ void safe_memory_free(void ** pointer_address, char *id) {
         log_warn("double free or memory corruption was avoided: %s", id);
     }
 }
+
+void set_page_size() {
+    page_size = getpagesize();
+}
