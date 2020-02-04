@@ -37,7 +37,6 @@ one-forwarder file-per-process:
      - "${LOG_PATH}"
      - "${TESTS_PATH}/one-forwarder/file-per-process.json.map"
      - "${TESTS_PATH}/one-forwarder/file-per-process.json.time"
-     - "${TESTS_PATH}/one-forwarder/file-per-process.json.0.stats"
 
 one-forwarder shared-file-contiguous:
   stage: test single
@@ -53,7 +52,6 @@ one-forwarder shared-file-contiguous:
      - "${LOG_PATH}"
      - "${TESTS_PATH}/one-forwarder/shared-file-contiguous.json.map"
      - "${TESTS_PATH}/one-forwarder/shared-file-contiguous.json.time"
-     - "${TESTS_PATH}/one-forwarder/shared-file-contiguous.json.0.stats"
 
 one-forwarder shared-file-strided:
   stage: test single
@@ -69,7 +67,6 @@ one-forwarder shared-file-strided:
      - "${LOG_PATH}"
      - "${TESTS_PATH}/one-forwarder/shared-file-strided.json.map"
      - "${TESTS_PATH}/one-forwarder/shared-file-strided.json.time"
-     - "${TESTS_PATH}/one-forwarder/shared-file-strided.json.0.stats"
 
 two-forwarders file-per-process:
   stage: test multiple
@@ -85,7 +82,6 @@ two-forwarders file-per-process:
      - "${LOG_PATH}"
      - "${TESTS_PATH}/two-forwarders/file-per-process.json.map"
      - "${TESTS_PATH}/two-forwarders/file-per-process.json.time"
-     - "${TESTS_PATH}/two-forwarders/file-per-process.json.0.stats"
 
 two-forwarders shared-file-contiguous:
   stage: test multiple
@@ -101,7 +97,6 @@ two-forwarders shared-file-contiguous:
      - "${LOG_PATH}"
      - "${TESTS_PATH}/two-forwarders/shared-file-contiguous.json.map"
      - "${TESTS_PATH}/two-forwarders/shared-file-contiguous.json.time"
-     - "${TESTS_PATH}/two-forwarders/shared-file-contiguous.json.0.stats"
 
 two-forwarders shared-file-strided:
   stage: test multiple
@@ -117,7 +112,6 @@ two-forwarders shared-file-strided:
      - "${LOG_PATH}"
      - "${TESTS_PATH}/two-forwarders/shared-file-strided.json.map"
      - "${TESTS_PATH}/two-forwarders/shared-file-strided.json.time"
-     - "${TESTS_PATH}/two-forwarders/shared-file-strided.json.0.stats"
 
 four-forwarders file-per-process:
   stage: test multiple
@@ -133,7 +127,6 @@ four-forwarders file-per-process:
      - "${LOG_PATH}"
      - "${TESTS_PATH}/four-forwarders/file-per-process.json.map"
      - "${TESTS_PATH}/four-forwarders/file-per-process.json.time"
-     - "${TESTS_PATH}/four-forwarders/file-per-process.json.0.stats"
 
 four-forwarders shared-file-contiguous:
   stage: test multiple
@@ -149,7 +142,6 @@ four-forwarders shared-file-contiguous:
      - "${LOG_PATH}"
      - "${TESTS_PATH}/four-forwarders/shared-file-contiguous.json.map"
      - "${TESTS_PATH}/four-forwarders/shared-file-contiguous.json.time"
-     - "${TESTS_PATH}/four-forwarders/shared-file-contiguous.json.0.stats"
 
 four-forwarders shared-file-strided:
   stage: test multiple
@@ -165,6 +157,5 @@ four-forwarders shared-file-strided:
      - "${LOG_PATH}"
      - "${TESTS_PATH}/four-forwarders/shared-file-strided.json.map"
      - "${TESTS_PATH}/four-forwarders/shared-file-strided.json.time"
-     - "${TESTS_PATH}/four-forwarders/shared-file-strided.json.0.stats"
 
 
