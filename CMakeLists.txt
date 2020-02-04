@@ -12,7 +12,7 @@ option(PVFS "Enable the PVFS interface to send the requests" OFF)
 option(ORANGEFS "Enable the OrangeFS interface to send the requests" OFF)
 
 set(PVFS OFF)
-set(DEBUG ON)
+set(DEBUG OFF)
 set(STATISTICS OFF)
 set(EXPLAIN ON)
 
