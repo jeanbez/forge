@@ -31,7 +31,7 @@ one-forwarder file-per-process:
     - cp agios/* /tmp/
     - cd "${TEMPORARY_PATH}"
     - export OMPI_MCA_btl_vader_single_copy_mechanism=none
-    - mpirun --allow-run-as-root --oversubscribe --np 9 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/one-forwarder/file-per-process.json ${CI_PROJECT_DIR}/logs/file-per-process.log
+    - mpirun --allow-run-as-root --oversubscribe --np 9 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/one-forwarder/file-per-process.json ${CI_PROJECT_DIR}
   artifacts:
     paths:
      - "${LOG_PATH}"
@@ -46,7 +46,7 @@ one-forwarder shared-file-contiguous:
     - cp agios/* /tmp/
     - cd "${TEMPORARY_PATH}"
     - export OMPI_MCA_btl_vader_single_copy_mechanism=none
-    - mpirun --allow-run-as-root --oversubscribe --np 9 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/one-forwarder/shared-file-contiguous.json ${CI_PROJECT_DIR}/logs/shared-file-contiguous.log
+    - mpirun --allow-run-as-root --oversubscribe --np 9 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/one-forwarder/shared-file-contiguous.json ${CI_PROJECT_DIR}
   artifacts:
     paths:
      - "${LOG_PATH}"
@@ -61,7 +61,7 @@ one-forwarder shared-file-strided:
     - cp agios/* /tmp/
     - cd "${TEMPORARY_PATH}"
     - export OMPI_MCA_btl_vader_single_copy_mechanism=none
-    - mpirun --allow-run-as-root --oversubscribe --np 9 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/one-forwarder/shared-file-strided.json ${CI_PROJECT_DIR}/logs/shared-file-strided.log
+    - mpirun --allow-run-as-root --oversubscribe --np 9 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/one-forwarder/shared-file-strided.json ${CI_PROJECT_DIR}
   artifacts:
     paths:
      - "${LOG_PATH}"
@@ -76,7 +76,7 @@ two-forwarders file-per-process:
     - cp agios/* /tmp/
     - cd "${TEMPORARY_PATH}"
     - export OMPI_MCA_btl_vader_single_copy_mechanism=none
-    - mpirun --allow-run-as-root --oversubscribe --np 10 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/two-forwarders/file-per-process.json ${CI_PROJECT_DIR}/logs/file-per-process.log
+    - mpirun --allow-run-as-root --oversubscribe --np 10 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/two-forwarders/file-per-process.json ${CI_PROJECT_DIR}
   artifacts:
     paths:
      - "${LOG_PATH}"
@@ -91,7 +91,7 @@ two-forwarders shared-file-contiguous:
     - cp agios/* /tmp/
     - cd "${TEMPORARY_PATH}"
     - export OMPI_MCA_btl_vader_single_copy_mechanism=none
-    - mpirun --allow-run-as-root --oversubscribe --np 10 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/two-forwarders/shared-file-contiguous.json ${CI_PROJECT_DIR}/logs/shared-file-contiguous.log
+    - mpirun --allow-run-as-root --oversubscribe --np 10 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/two-forwarders/shared-file-contiguous.json ${CI_PROJECT_DIR}
   artifacts:
     paths:
      - "${LOG_PATH}"
@@ -106,7 +106,7 @@ two-forwarders shared-file-strided:
     - cp agios/* /tmp/
     - cd "${TEMPORARY_PATH}"
     - export OMPI_MCA_btl_vader_single_copy_mechanism=none
-    - mpirun --allow-run-as-root --oversubscribe --np 10 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/two-forwarders/shared-file-strided.json ${CI_PROJECT_DIR}/logs/shared-file-strided.log
+    - mpirun --allow-run-as-root --oversubscribe --np 10 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/two-forwarders/shared-file-strided.json ${CI_PROJECT_DIR}
   artifacts:
     paths:
      - "${LOG_PATH}"
@@ -121,7 +121,7 @@ four-forwarders file-per-process:
     - cp agios/* /tmp/
     - cd "${TEMPORARY_PATH}"
     - export OMPI_MCA_btl_vader_single_copy_mechanism=none
-    - mpirun --allow-run-as-root --oversubscribe --np 12 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/four-forwarders/file-per-process.json ${CI_PROJECT_DIR}/logs/file-per-process.log
+    - mpirun --allow-run-as-root --oversubscribe --np 12 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/four-forwarders/file-per-process.json ${CI_PROJECT_DIR}
   artifacts:
     paths:
      - "${LOG_PATH}"
@@ -136,7 +136,7 @@ four-forwarders shared-file-contiguous:
     - cp agios/* /tmp/
     - cd "${TEMPORARY_PATH}"
     - export OMPI_MCA_btl_vader_single_copy_mechanism=none
-    - mpirun --allow-run-as-root --oversubscribe --np 12 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/four-forwarders/shared-file-contiguous.json ${CI_PROJECT_DIR}/logs/shared-file-contiguous.log
+    - mpirun --allow-run-as-root --oversubscribe --np 12 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/four-forwarders/shared-file-contiguous.json ${CI_PROJECT_DIR}
   artifacts:
     paths:
      - "${LOG_PATH}"
@@ -151,7 +151,7 @@ four-forwarders shared-file-strided:
     - cp agios/* /tmp/
     - cd "${TEMPORARY_PATH}"
     - export OMPI_MCA_btl_vader_single_copy_mechanism=none
-    - mpirun --allow-run-as-root --oversubscribe --np 12 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/four-forwarders/shared-file-strided.json ${CI_PROJECT_DIR}/logs/shared-file-strided.log
+    - mpirun --allow-run-as-root --oversubscribe --np 12 ${INSTALL_PATH}/bin/forge ${TESTS_PATH}/four-forwarders/shared-file-strided.json ${CI_PROJECT_DIR}
   artifacts:
     paths:
      - "${LOG_PATH}"
