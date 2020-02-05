@@ -680,10 +680,7 @@ int main(int argc, char *argv[]) {
                 for (id = 0; id < description->total; id++) {
                     simulation = description->patterns[id];
 
-                    // Fill the buffer with fake data to be written
-                    for (b = 0; b < simulation->request_size; b++) {
-                        buffer[b] = 'a' + (client_rank % 25);
-                    }
+                    log_trace("fill the I/O buffer of process %d", world_rank);
 
                     // Handle individual files by renaming the output once
                     if (simulation->number_of_files == INDIVIDUAL) {
@@ -696,6 +693,13 @@ int main(int argc, char *argv[]) {
                     // Setup the simulation phase
 
                     if (simulation->operation == READ) {
+                        log_trace("issue READ at process %d", world_rank);
+
+                        // Fill the buffer with fake data to be written
+                        for (b = 0; b < simulation->request_size; b++) {
+                            buffer[b] = 'a' + (client_rank % 25);
+                        }
+
                         if (client_rank == 0) {
                             sprintf(map + strlen(map), "\n---------------------------\n operation: %s\n layout: %s\n spatiality: %s\n odirect: %d\n stonewall: %d\n request: %ld KB\n total: %ld MB\n---------------------------\n", "read", simulation->number_of_files == INDIVIDUAL ? "individual" : "shared", simulation->spatiality == CONTIGUOUS ? "contiguous" : "strided", simulation->direct_io, simulation->stone_wall, simulation->request_size / 1024, simulation->total_size / 1024 / 1024);
                         }
@@ -853,6 +857,13 @@ int main(int argc, char *argv[]) {
                             safe_free(rank_elapsed, "main_elapsed:002");
                         }
                     } else if (simulation->operation == WRITE) {
+                        log_trace("issue WRITE at process %d", world_rank);
+
+                        // Fill the buffer with fake data to be written
+                        for (b = 0; b < simulation->request_size; b++) {
+                            buffer[b] = 'a' + (client_rank % 25);
+                        }
+
                         if (client_rank == 0) {
                             sprintf(map + strlen(map), "\n---------------------------\n operation: %s\n layout: %s\n spatiality: %s\n odirect: %d\n stonewall: %d\n request: %ld KB\n total: %ld MB\n---------------------------\n", "write", simulation->number_of_files == INDIVIDUAL ? "individual" : "shared", simulation->spatiality == CONTIGUOUS ? "contiguous" : "strided", simulation->direct_io, simulation->stone_wall, simulation->request_size / 1024, simulation->total_size / 1024 / 1024);
                         }
@@ -996,6 +1007,8 @@ int main(int argc, char *argv[]) {
                         
                         MPI_Barrier(clients_comm);
                     } else if (simulation->operation == OPEN) {
+                        log_trace("issue OPEN at process %d", world_rank);
+
                         if (client_rank == 0) {
                             sprintf(map + strlen(map), "\n---------------------------\n operation: %s\n layout: %s\n---------------------------\n", "open", simulation->number_of_files == INDIVIDUAL ? "individual" : "shared");
                         }
@@ -1029,6 +1042,8 @@ int main(int argc, char *argv[]) {
 
                         MPI_Barrier(clients_comm);
                     } else if (simulation->operation == CLOSE) {
+                        log_trace("issue CLOSE at process %d", world_rank);
+
                         if (client_rank == 0) {
                             sprintf(map + strlen(map), "\n---------------------------\n operation: %s\n layout: %s\n---------------------------\n", "close", simulation->number_of_files == INDIVIDUAL ? "individual" : "shared");
                         }
