@@ -8,6 +8,7 @@
 #include <math.h>
 #include <unistd.h>
 #include <limits.h>
+#include <sys/stat.h>
 
 #include <gsl/gsl_sort.h>
 #include <gsl/gsl_statistics.h>

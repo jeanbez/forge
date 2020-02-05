@@ -52,10 +52,19 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
+    struct stat sb;
     char *directory = argv[2];
 
     char simulation_log_file[255] = "";
     sprintf(simulation_log_file, "%s/emulation.log", directory);
+
+    // Check if the path to store the logs exists
+    if (!(stat(directory, &sb) == 0 && S_ISDIR(sb.st_mode))) {
+        printf("\nFORGE - I/O Forwarding Emulator\n");
+        printf("Invalid path to store logs!\n");
+
+        return 0;
+    }
 
     // Open log file
     FILE *log_file;
@@ -659,11 +668,12 @@ int main(int argc, char *argv[]) {
         MPI_Barrier(MPI_COMM_WORLD);
 
         // Iterate over each phase and issue the proper requests
-
         struct phase *description;
         struct phase *tmp;
 
         struct pattern *simulation;
+
+        log_trace("begin I/O phases from process %d of %d!", world_rank, world_size);
 
         fwd_list_for_each_entry_safe(description, tmp, &phases, list) {
             for (repetition = 0; repetition < description->repetitions; repetition++) {

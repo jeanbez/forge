@@ -22,13 +22,13 @@ void dispatch_read(struct aggregated_request *aggregated) {
         int rc = pread(aggregated->requests[i].file_handle, aggregated->requests[i].buffer, aggregated->requests[i].size, aggregated->requests[i].offset);
     
         if (rc != aggregated->requests[i].size) {
-        #ifdef EXPLAIN
-        int err = errno;
-        char message[3000];
+            #ifdef EXPLAIN
+            int err = errno;
+            char message[3000];
 
             explain_message_errno_pread(message, sizeof(message), err, aggregated->requests[i].file_handle, aggregated->requests[i].buffer, aggregated->requests[i].size, aggregated->requests[i].offset);
-        log_error("---> %s\n", message);
-        #endif
+            log_error("---> %s\n", message);
+            #endif
 
             log_error("r->filehandle = %ld, r->size = %ld, r->offset = %ld", aggregated->requests[i].file_handle, aggregated->requests[i].size, aggregated->requests[i].offset);
             log_error("single read %d of expected %d", rc, aggregated->requests[i].size);
@@ -48,13 +48,13 @@ void dispatch_write(struct aggregated_request *aggregated) {
         int rc = pwrite(aggregated->requests[i].file_handle, aggregated->requests[i].buffer, aggregated->requests[i].size, aggregated->requests[i].offset);
 
         if (rc != aggregated->requests[i].size) {
-        #ifdef EXPLAIN
-        int err = errno;
-        char message[3000];
-        
+            #ifdef EXPLAIN
+            int err = errno;
+            char message[3000];
+            
             explain_message_errno_pwrite(message, sizeof(message), err, aggregated->requests[i].file_handle, aggregated->requests[i].buffer, aggregated->requests[i].size, aggregated->requests[i].offset);
-        log_error("---> %s\n", message);
-        #endif
+            log_error("---> %s\n", message);
+            #endif
 
             log_error("r->filehandle = %ld, r->size = %ld, r->offset = %ld", aggregated->requests[i].file_handle, aggregated->requests[i].size, aggregated->requests[i].offset);
             log_error("single write %d of expected %d", rc, aggregated->requests[i].size);

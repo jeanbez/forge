@@ -6,6 +6,7 @@ int compare_offsets(const void* a, const void* b) {
 
     return (request_a.offset > request_b.offset); 
 }
+
 /**
  * Dispatch a PVFS request.
  * @param *aggregated A pointer to the aggregated request.
@@ -76,13 +77,13 @@ void dispatch_operation(struct aggregated_request *aggregated) {
 
         for (i = 0; i < aggregated->count; ++i) {
             displacements[i] = (intptr_t) aggregated->requests[i].buffer;
-    }
+        }
 
         offsets = malloc(sizeof(PVFS_size) * aggregated->count);
 
         for (i = 0; i < aggregated->count; ++i) {
             offsets[i] = aggregated->requests[i].offset;
-}
+        }
 
         ret = PVFS_Request_hindexed(
             aggregated->count,
@@ -106,9 +107,9 @@ void dispatch_operation(struct aggregated_request *aggregated) {
             offsets,
             PVFS_BYTE,
             &file_req
-    );
+        );
 
-    if (ret < 0) {
+        if (ret < 0) {
             log_error("READ PVFS_Request_indexed failure");
         }
     }
@@ -144,7 +145,7 @@ void dispatch_operation(struct aggregated_request *aggregated) {
     #endif
 
     if (aggregated->operation == PVFS_IO_WRITE) {
-    thpool_add_work(thread_pool, (void*)callback_write, aggregated);
+        thpool_add_work(thread_pool, (void*)callback_write, aggregated);
     } else {
         thpool_add_work(thread_pool, (void*)callback_read, aggregated);
     }
