@@ -13,7 +13,7 @@ These instructions will get you a copy of the project up and running on your loc
 The emulator needs the AGIOS scheduling library for the I/O nodes to have request scheduling capabilities. To install AGIOS:
 
 ```
-git clone https://bitbucket.org/francielizanon/agios
+git clone https://gitlab.com/jeanbez/agios
 cd agios
 make library
 make library_install
@@ -59,34 +59,119 @@ cp agios/* /tmp/
 
 ### Emulator Configuration
 
-The emulator is capable of mock different access patterns (based on MPI-IO Test Benchmark). It takes several parameters to configure the forwarding nodes.
+The emulator is capable of mocking different access patterns (based on MPI-IO Test Benchmark). It takes several parameters to configure the forwarding nodes.
 
 | Parameter | Description |
 | -------------- | -------------- |
 | `forwarders` | Number of the first `N` MPI processes that will act as I/O forwarding servers. |
 | `handlers` | Number of threads to handle incoming messages from the compute nodes connected to the forwarding node. |
 | `dispatchers` | Number of threads to issue requests to the file system. |
+| `phases` | The detailed description of each I/O phase. |
+
+To describe each I/O phase you can use the following parameters:
+
+| Parameter | Description |
+| -------------- | -------------- |
+| `repetitions` | Number of times this I/O phase must be repeated in sequence before advancing to the next one. |
+| `patterns` | The detailed description of each access pattern that is part of this I/O phase. |
+
+To describe each access pattern you can use the following parameters:
+
+| Parameter | Description |
+| -------------- | -------------- |
 | `path` | The absolute path to where the file should be written. In case of a file per process, this path will act as a prefix for the final filename. |
+| `operation` | The I/O operation to be issued. The available options are: `open`, `close`, `read`, and `write`. |
 | `number_of_files` | The number of files that the emulator will use. It supports two values: `individual` and `shared`. In the first, each process will write/read to its own independent file, whereas for the latter, all processes will share the same file. |
 | `spatiality` | Defines the spatiality of the accesses. It supports `contiguous` and `strided` accesses. Notice that the `strided` option *cannot* be used with the `individual` file layout. |
 | `total_size` | Defines the total size of the simulation (in bytes). |
 | `request_size` | Defines the size of each request (in bytes). |
 | `validation` | Validate each byte read by the emulator. This option **will** interfere with the total execution time. Therefore, please do not use it while collecting runtime. |
+| `stone_wall` | The maximum execution time in seconds of this pattern. If set to zero it will disable this feature. |
+| `direct_io` | Issue operations with `O_DIRECT` enabled, skipping the cache. |
 
 The emulator receives a JSON file with the parameters for the execution. An example of a configuration file is presented below. 
 
 ```
 {
-    "forwarders": "1",
-    "handlers": "16",
-    "dispatchers": "16",
-    "path": "/mnt/pfs/test",
-    "number_of_files": "shared",
-    "spatiality": "contiguous",
-    "total_size": "4294967296",
-    "request_size": "32768",
-    "validation": "1"
+    "forwarders": 1,
+    "handlers": 1,
+    "dispatchers": 16,
+    "phases": [
+        {
+            "repetitions": 1,
+            "patterns": [
+                {
+                    "path": "/tmp/file",
+                    "operation": "open",
+                    "number_of_files": "individual"
+                }
+            ]
+        },
+        {
+            "repetitions": 1,
+            "patterns": [
+                {
+                    "path": "/tmp/file",
+                    "number_of_files": "individual",
+                    "spatiality": "contiguous",
+                    "total_size": 134217728,
+                    "request_size": 32768,
+                    "validation": 0,
+                    "operation": "write",
+                    "direct_io": 0,
+                    "stone_wall": 60
+                }
+            ]
+        },
+        {
+            "repetitions": 1,
+            "patterns": [
+                {
+                    "path": "/tmp/file",
+                    "operation": "close",
+                    "number_of_files": "individual"
+                }
+            ]
+        },
+        {
+            "repetitions": 1,
+            "patterns": [
+                {
+                    "path": "/tmp/file",
+                    "operation": "open",
+                    "number_of_files": "individual"
+                }
+            ]
+        },
+        {
+            "repetitions": 1,
+            "patterns": [
+                {
+                    "path": "/tmp/file",
+                    "number_of_files": "individual",
+                    "spatiality": "contiguous",
+                    "total_size": 134217728,
+                    "request_size": 32768,
+                    "validation": 0,
+                    "operation": "read",
+                    "direct_io": 0,
+                    "stone_wall": 60
+                }
+            ]
+        },
+        {
+            "repetitions": 1,
+            "patterns": [
+                {
+                    "path": "/tmp/file",
+                    "operation": "close",
+                    "number_of_files": "individual"
+                }
+            ]
+        }
+    ]
 }
+
 ```
 
 Furthermore, the emulator expects a `hostfile` with proper mapping of processes per compute node. Since the first `N` MPI processes will act as forwarders, you need to ensure that the first `N` nodes in the list have a single slot available. 
@@ -103,7 +188,7 @@ grisou-19.nancy.grid5000.fr:4
 grisou-20.nancy.grid5000.fr:4
 ```
 
-Once you have the configuration file prepared, you can launch the emulator. However, notice that you need to start additional `forwarders` MPI processes. For instance, if you want to emulate 128 clients and 4 forwarders, you need to use `--op 132`. The first `forwarders` MPI processes will be placed in separate nodes (one per node if your `hostfile` was correctly defined). The remainder of the process will be allocated to other compute nodes.
+Once you have the configuration file prepared, you can launch the emulator. However, notice that you need to start additional `forwarders` MPI processes. For instance, if you want to emulate 128 clients and 4 forwarders, you need to use `--np 132`. The first `forwarders` MPI processes will be placed in separate nodes (one per node if your `hostfile` was correctly defined). The remainder of the process will be allocated to other compute nodes.
 
 ## Statistics
 
@@ -122,7 +207,7 @@ rank 8: client
 rank 9: client
 ```
 
-One `.stat` file will be generated for each I/O forwarding server containing the number of open, read, write, and close operations handled by that server. Furthermore, it also presents the total write and read size.
+One `.stat` file will be generated for each I/O forwarding server containing the number of open, read, write, and close operations handled by that server. Furthermore, it also presents the total write and read size. Notice that this is only enabled if the emulator was built using `STATISTICS=ON`.
 
 ```
 forwarder: 0
