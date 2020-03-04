@@ -24,13 +24,13 @@
 #define ERROR_INVALID_FILE_HANDLE 70013				/*!< Invalid file handle. */
 #define ERROR_FAILED_TO_CLOSE 70014					/*!< Failed to close a file. */
 #define ERROR_INVALID_VALIDATION 70015				/*!< Invalid validation option was provided by the user. */
-#define ERROR_POSIX_OPEN 700016						/*!< Error when operning a file using POSIX. */
-#define ERROR_PVFS_OPEN 700017						/*!< Error when operning a file using PVFS. */
-#define ERROR_VALIDATION_FAILED 700018				/*!< Validation failed. */
-#define ERROR_AGIOS_INITIALIZATION 700019 			/*!< Unable to initialize AGIOS, check for the configuration file. */
-#define ERROR_FAILED_TO_LOAD_JSON 700020		 	/*!< Unable to read the JSON file. */
-#define ERROR_INVALID_OPERATION 700021				/*!< Invalid or no operation was defined. */
-#define ERROR_STONE_WALL_SETUP 700022				/*!< Invalid stone wall setup. */
+#define ERROR_POSIX_OPEN 70016						/*!< Error when operning a file using POSIX. */
+#define ERROR_PVFS_OPEN 70017						/*!< Error when operning a file using PVFS. */
+#define ERROR_VALIDATION_FAILED 70018				/*!< Validation failed. */
+#define ERROR_AGIOS_INITIALIZATION 70019 			/*!< Unable to initialize AGIOS, check for the configuration file. */
+#define ERROR_FAILED_TO_LOAD_JSON 70020		 	/*!< Unable to read the JSON file. */
+#define ERROR_INVALID_OPERATION 70021				/*!< Invalid or no operation was defined. */
+#define ERROR_STONE_WALL_SETUP 70022				/*!< Invalid stone wall setup. */
 
 #define READ 0										/*!< Identify read operations. */
 #define WRITE 1										/*!< Identify write operations. */

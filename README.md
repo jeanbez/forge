@@ -19,10 +19,17 @@ make library
 make library_install
 ```
 
-You must also have the GSL - GNU Scientific Library installed. To install GSL:
+You must also have the GSL - GNU Scientific Library, C/C++ library for processing configuration files and explain UNIX and LINUX system calls installed.
+To install GSL:
 
 ```
 apt install libgsl-dev
+```
+To install libconfig and libexplain:
+
+```
+apt install libconfig-dev
+apt install libexplain-dev
 ```
 
 ### Building
@@ -189,6 +196,8 @@ grisou-20.nancy.grid5000.fr:4
 ```
 
 Once you have the configuration file prepared, you can launch the emulator. However, notice that you need to start additional `forwarders` MPI processes. For instance, if you want to emulate 128 clients and 4 forwarders, you need to use `--np 132`. The first `forwarders` MPI processes will be placed in separate nodes (one per node if your `hostfile` was correctly defined). The remainder of the process will be allocated to other compute nodes.
+
+`Obs:`The number of clients must be divisible by the number of forwarders.
 
 ## Statistics
 
