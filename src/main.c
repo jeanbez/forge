@@ -269,7 +269,7 @@ int main(int argc, char *argv[]) {
 
             if (cJSON_IsString(json_tag) && (json_tag->valuestring != NULL)) {
                 simulation_files_name = json_tag->valuestring;
-                
+
                 // Check for supported spatialities
                 if (strcmp("shared", simulation_files_name) == 0) {
                     simulation_files = SHARED;
@@ -287,7 +287,7 @@ int main(int argc, char *argv[]) {
 
             if (cJSON_IsString(json_tag) && (json_tag->valuestring != NULL)) {
                 simulation_spatiality_name = json_tag->valuestring;
-                
+
                 // Check for supported spatialities
                 if (strcmp("contiguous", simulation_spatiality_name) == 0) {
                     simulation_spatiality = CONTIGUOUS;
@@ -313,7 +313,7 @@ int main(int argc, char *argv[]) {
         
             if (cJSON_IsNumber(json_tag) && (json_tag->valueint > 0)) {
                 simulation_request_size = (unsigned long int) json_tag->valuedouble;
-
+		printf("\nREQUEST SIZE CHECK:%lu\n",simulation_request_size);
                 p->request_size = simulation_request_size;
             }
 
@@ -345,11 +345,12 @@ int main(int argc, char *argv[]) {
 
                 p->validation = simulation_validation;
             }
-
+	   
             // Verify for an invalid pattern: individual files with 1D strided accesses
-            if (simulation_files == INDIVIDUAL && simulation_spatiality == STRIDED) {
-                log_error("invalid access pattern");
-
+            if (p->number_of_files == INDIVIDUAL && p->spatiality == STRIDED) {
+	        
+	        log_error("invalid access pattern");
+						
                 MPI_Abort(MPI_COMM_WORLD, ERROR_INVALID_PATTERN);
             }
 
