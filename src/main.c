@@ -313,7 +313,7 @@ int main(int argc, char *argv[]) {
         
             if (cJSON_IsNumber(json_tag) && (json_tag->valueint > 0)) {
                 simulation_request_size = (unsigned long int) json_tag->valuedouble;
-		printf("\nREQUEST SIZE CHECK:%lu\n",simulation_request_size);
+
                 p->request_size = simulation_request_size;
             }
 
