@@ -1,12 +1,40 @@
 ![FORGE](forge.png)
 
-# I/O Forwarding Emulator
+# I/O Forwarding Explorer
 
-The goal of the I/O **FOR**wardin**G E**mulator, a.k.a., **FORGE** is to quickly evaluate new I/O optimizations (such as new request schedulers) and modifications on I/O forwarding deployment and configuration on large-scale clusters and supercomputers. As modification on production-scale machines are often not allowed (as it could disrupt services), this straightforward emulator seeks to be a research alternative. 
+The goal of the I/O **FOR**wardin**G E**xplorer, a.k.a., **FORGE** is to quickly evaluate new I/O optimizations (such as new request schedulers) and modifications on I/O forwarding deployment and configuration on large-scale clusters and supercomputers. As modification on production-scale machines are often not allowed (as it could disrupt services), this straightforward emulator seeks to be a research alternative. 
 
 ## Getting Started
 
 These instructions will get you a copy of the project up and running on your local machine for development and testing purposes.
+
+### Spack
+
+You can use Spack to install FORGE and let it handle all the dependencies. First, you will need to install Spack:
+
+```
+git clone https://github.com/spack/spack.git
+. spack/share/spack/setup-env.sh
+```
+
+Once Spack is installed and available in your path, clone the following git reporitory and add it as a Spack namespace.
+
+```
+git clone https://github.com/jeanbez/forge-spack-packages.git
+spack repo add forge-spack-packages
+```
+
+You can then check that Spack can find FORGE by typping:
+
+```
+spack info forge
+```
+
+Finally, just install FORGE:
+
+```
+spack install forge
+```
 
 ### Prerequisites
 
