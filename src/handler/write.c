@@ -56,7 +56,7 @@ int handle_write(struct forwarding_request *r) {
     #endif
 
     // Send the request to AGIOS
-    if (agios_add_request(fh_str, r->operation, r->offset, r->size, (void *)r->id, &agios_client, 0)) {
+    if (!agios_add_request(fh_str, r->operation, r->offset, r->size, r->id)) {
         // Failed to sent to AGIOS, we should remove the request from the list
         log_debug("Failed to send the request to AGIOS");
 

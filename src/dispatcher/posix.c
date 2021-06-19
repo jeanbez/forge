@@ -94,7 +94,7 @@ void callback_read(struct aggregated_request *aggregated) {
         // Release the AGIOS request
         sprintf(fh_str, "%015d", current_r->file_handle);
 
-        agios_release_request(fh_str, current_r->operation, current_r->size, current_r->offset, 0, current_r->size); // 0 is a sub-request
+        agios_release_request(fh_str, current_r->operation, current_r->size, current_r->offset);
 
         // Free the buffer and the request
         free(current_r->buffer);
@@ -133,7 +133,7 @@ void callback_write(struct aggregated_request *aggregated) {
         // Release the AGIOS request
         sprintf(fh_str, "%015d", current_r->file_handle);
 
-        agios_release_request(fh_str, current_r->operation, current_r->size, current_r->offset, 0, current_r->size); // 0 is a sub-request
+        agios_release_request(fh_str, current_r->operation, current_r->size, current_r->offset);
 
         // Free the buffer and the request
         free(current_r->buffer);

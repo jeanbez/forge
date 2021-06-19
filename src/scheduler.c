@@ -4,7 +4,7 @@
  * AGIOS callback function to put a single request in the ready queue.
  * @param id The request ID.
  */
-void callback(unsigned long long int id) {
+void* callback(unsigned long long int id) {
     log_trace("AGIOS_CALLBACK: %ld", id);
 
     #ifdef DEBUG
@@ -41,7 +41,7 @@ void callback(unsigned long long int id) {
  * @param *ids The list of requests.
  * @param total The total number of requests.
  */
-void callback_aggregated(unsigned long long int *ids, int total) {
+void* callback_aggregated(unsigned long long int *ids, int total) {
     int i;
 
     #ifdef DEBUG
@@ -88,11 +88,8 @@ void stop_AGIOS() {
  * Start the AGIOS scheduling library and define the callbacks.
  */
 void start_AGIOS(int simulation_forwarders) {
-    agios_client.process_request = (void *) callback;
-    agios_client.process_requests = (void *) callback_aggregated;
-
     // Check if AGIOS was successfully inicialized
-    if (agios_init(&agios_client, AGIOS_CONFIGURATION, simulation_forwarders) != 0) {
+    if (!agios_init(callback, callback_aggregated, AGIOS_CONFIGURATION, simulation_forwarders)) {
         log_debug("Unable to initialize AGIOS scheduling library");
 
         stop_AGIOS();
